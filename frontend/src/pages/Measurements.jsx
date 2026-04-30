@@ -10,8 +10,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import api, { formatErr } from "@/lib/api";
+import { Progress } from "@/components/ui/progress";
+import api, { formatErr, updateContainerCompletionForm } from "@/lib/api";
 import { toast } from "sonner";
 import { calcLog, fmt, fmtInt } from "@/lib/calc";
 
@@ -32,6 +36,87 @@ function StatusBadge({ status }) {
 
 const blank = () => ({ le1: "", l: "", g1: "", g2: "" });
 
+// Completion Form Modal
+function CompletionFormModal({ open, onOpenChange, container, onSaved }) {
+  const [form, setForm] = useState({
+    bend_percent: "",
+    quality_by_us: "",
+    measurement_date: new Date().toISOString().slice(0, 10),
+  });
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!form.bend_percent && !form.quality_by_us && !form.measurement_date) {
+      toast.error("Please fill at least one field");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateContainerCompletionForm(container.id, {
+        bend_percent: form.bend_percent ? parseFloat(form.bend_percent) : null,
+        quality_by_us: form.quality_by_us.trim() || null,
+        measurement_date: form.measurement_date || null,
+      });
+      toast.success("Container marked complete with completion data");
+      onSaved?.();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(formatErr(e?.response?.data?.detail));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-xl">Complete Container</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">Bend % (Optional)</Label>
+            <Input
+              type="number"
+              step="0.1"
+              value={form.bend_percent}
+              onChange={(e) => setForm({ ...form, bend_percent: e.target.value })}
+              placeholder="e.g. 5.5"
+              className="h-11 border-2"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">Quality by Us (Optional)</Label>
+            <Input
+              value={form.quality_by_us}
+              onChange={(e) => setForm({ ...form, quality_by_us: e.target.value })}
+              placeholder="e.g. Good, Average, Rejected"
+              className="h-11 border-2"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">Measurement Date</Label>
+            <Input
+              type="date"
+              value={form.measurement_date}
+              onChange={(e) => setForm({ ...form, measurement_date: e.target.value })}
+              className="h-11 border-2"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="border-2">
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={saving} className="bg-emerald-700 hover:bg-emerald-800">
+            {saving ? "Saving..." : "Mark Complete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Measurements() {
   const [purchases, setPurchases] = useState([]);
   const [selectedBl, setSelectedBl] = useState("");
@@ -41,6 +126,7 @@ export default function Measurements() {
   const [markComplete, setMarkComplete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingContainer, setLoadingContainer] = useState(false);
+  const [showCompletionForm, setShowCompletionForm] = useState(false);
 
   useEffect(() => {
     api.get("/purchases").then((r) => setPurchases(r.data)).catch(() => {});
@@ -204,6 +290,13 @@ export default function Measurements() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {containers.map((c) => {
               const active = selectedContainer?.id === c.id;
+              const statusColors = {
+                pending: { bg: "bg-white", border: "border-slate-200", icon: "bg-slate-400" },
+                in_progress: { bg: "bg-orange-50", border: "border-orange-300", icon: "bg-orange-500" },
+                completed: { bg: "bg-emerald-50", border: "border-emerald-300", icon: "bg-emerald-600" },
+              };
+              const colors = statusColors[c.status] || statusColors.pending;
+              
               return (
                 <button
                   type="button"
@@ -212,19 +305,21 @@ export default function Measurements() {
                   data-testid={`container-btn-${c.container_number}`}
                   className={`text-left p-4 rounded-xl border-2 transition ${
                     active
-                      ? "border-[#064E3B] bg-emerald-50"
-                      : "border-slate-200 bg-white hover:border-slate-300"
+                      ? "border-[#064E3B] bg-emerald-50 shadow-md"
+                      : `${colors.border} ${colors.bg} hover:border-slate-400 hover:shadow-sm`
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-3 h-3 rounded-full ${colors.icon}`} />
                       <div className="text-xs font-mono text-slate-500">#{c.sr_no}</div>
-                      <div className="font-mono text-base font-bold">{c.container_number}</div>
                     </div>
                     <StatusBadge status={c.status} />
                   </div>
-                  <div className="mt-2 text-xs text-slate-500 font-mono">
+                  <div className="font-mono text-base font-bold mb-1">{c.container_number}</div>
+                  <div className="text-xs text-slate-500 font-mono">
                     {c.log_count || 0} logs measured
+                    {c.status === "completed" && " ✓"}
                   </div>
                 </button>
               );
@@ -236,12 +331,64 @@ export default function Measurements() {
       {/* Step 3+ — info banner + log feed */}
       {containerData && (
         <>
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 sm:p-5 grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
-            <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">BL</div><div className="font-mono font-bold text-emerald-900">{containerData.purchase?.bl_number}</div></div>
-            <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Container</div><div className="font-mono font-bold text-emerald-900">{containerData.container_number}</div></div>
-            <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Supplier</div><div className="font-semibold text-emerald-900 truncate">{containerData.purchase?.supplier_name}</div></div>
-            <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Country</div><div className="font-semibold text-emerald-900">{containerData.purchase?.country}</div></div>
-            <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Date</div><div className="font-mono font-bold text-emerald-900">{containerData.purchase?.bl_date}</div></div>
+          {/* Enhanced info banner with purchased values */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 sm:p-5 space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
+              <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">BL</div><div className="font-mono font-bold text-emerald-900">{containerData.purchase?.bl_number}</div></div>
+              <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Container</div><div className="font-mono font-bold text-emerald-900">{containerData.container_number}</div></div>
+              <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Supplier</div><div className="font-semibold text-emerald-900 truncate">{containerData.purchase?.supplier_name}</div></div>
+              <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Country</div><div className="font-semibold text-emerald-900">{containerData.purchase?.country}</div></div>
+              <div><div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Date</div><div className="font-mono font-bold text-emerald-900">{containerData.purchase?.bl_date}</div></div>
+            </div>
+            
+            {/* Purchased values for reference */}
+            {(containerData.cbm_gross || containerData.cbm_net || containerData.pcs_supplier) && (
+              <div className="border-t border-emerald-300 pt-3">
+                <div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider mb-2">Supplier Declared Values (for reference)</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  {containerData.cbm_gross && (
+                    <div className="bg-white/60 rounded-lg p-2 border border-emerald-200">
+                      <div className="text-[10px] uppercase text-emerald-700 font-bold">CBM Gross</div>
+                      <div className="font-mono font-bold text-emerald-900">{containerData.cbm_gross}</div>
+                    </div>
+                  )}
+                  {containerData.cbm_net && (
+                    <div className="bg-white/60 rounded-lg p-2 border border-emerald-200">
+                      <div className="text-[10px] uppercase text-emerald-700 font-bold">CBM Net</div>
+                      <div className="font-mono font-bold text-emerald-900">{containerData.cbm_net}</div>
+                    </div>
+                  )}
+                  {containerData.pcs_supplier && (
+                    <div className="bg-white/60 rounded-lg p-2 border border-emerald-200">
+                      <div className="text-[10px] uppercase text-emerald-700 font-bold">PCS Supplier</div>
+                      <div className="font-mono font-bold text-emerald-900">{containerData.pcs_supplier}</div>
+                    </div>
+                  )}
+                  {containerData.quality_supplier && (
+                    <div className="bg-white/60 rounded-lg p-2 border border-emerald-200">
+                      <div className="text-[10px] uppercase text-emerald-700 font-bold">Quality</div>
+                      <div className="font-semibold text-emerald-900">{containerData.quality_supplier}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Live progress comparison */}
+            {containerData.pcs_supplier && (
+              <div className="border-t border-emerald-300 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs uppercase text-emerald-800/70 font-bold tracking-wider">Measurement Progress</div>
+                  <div className="font-mono text-sm font-bold text-emerald-900">
+                    {totals.pieces} / {containerData.pcs_supplier} pieces
+                  </div>
+                </div>
+                <Progress 
+                  value={(totals.pieces / containerData.pcs_supplier) * 100} 
+                  className="h-3 bg-emerald-200"
+                />
+              </div>
+            )}
           </div>
 
           {/* Live totals bar */}
@@ -418,32 +565,61 @@ export default function Measurements() {
           </div>
 
           {/* Mark complete + save */}
-          <div className="bg-white rounded-xl border-2 border-emerald-200 p-4 sm:p-5 flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={markComplete}
-                onCheckedChange={setMarkComplete}
-                data-testid="mark-complete-switch"
-                className="data-[state=checked]:bg-[#064E3B]"
-              />
-              <div>
-                <div className="font-bold text-slate-900 flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-700" />
-                  Mark Container Loading as COMPLETE
+          <div className="bg-white rounded-xl border-2 border-emerald-200 p-4 sm:p-5 space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <Switch
+                  checked={markComplete}
+                  onCheckedChange={setMarkComplete}
+                  data-testid="mark-complete-switch"
+                  className="data-[state=checked]:bg-[#064E3B]"
+                />
+                <div>
+                  <div className="font-bold text-slate-900 flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-700" />
+                    Mark Container Loading as COMPLETE
+                  </div>
+                  <div className="text-sm text-slate-500">When on, container status becomes Complete on save.</div>
                 </div>
-                <div className="text-sm text-slate-500">When on, container status becomes Complete on save.</div>
               </div>
+              <Button
+                onClick={save}
+                disabled={saving || loadingContainer}
+                data-testid="save-measurements-btn"
+                className="h-14 px-6 bg-[#064E3B] hover:bg-[#047857] font-bold text-base rounded-xl"
+              >
+                <Save className="w-5 h-5 mr-2" />
+                {saving ? "Saving..." : "Save & Submit"}
+              </Button>
             </div>
-            <Button
-              onClick={save}
-              disabled={saving || loadingContainer}
-              data-testid="save-measurements-btn"
-              className="h-14 px-6 bg-[#064E3B] hover:bg-[#047857] font-bold text-base rounded-xl"
-            >
-              <Save className="w-5 h-5 mr-2" />
-              {saving ? "Saving..." : "Save & Submit"}
-            </Button>
+            
+            {/* Or mark complete with completion form */}
+            <div className="border-t pt-4 flex items-center justify-between">
+              <div className="text-sm text-slate-600">
+                <strong>Or</strong> mark complete with additional details (Bend %, Quality, Date)
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setShowCompletionForm(true)}
+                className="h-11 border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-semibold"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Complete with Form
+              </Button>
+            </div>
           </div>
+          
+          {/* Completion Form Modal */}
+          <CompletionFormModal
+            open={showCompletionForm}
+            onOpenChange={setShowCompletionForm}
+            container={containerData}
+            onSaved={async () => {
+              await loadContainer(containerData.id);
+              const r = await api.get("/purchases");
+              setPurchases(r.data);
+            }}
+          />
         </>
       )}
     </div>

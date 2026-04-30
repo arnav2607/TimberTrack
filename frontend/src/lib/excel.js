@@ -229,3 +229,225 @@ export function exportAllXlsx(purchases, companyName) {
   });
   XLSX.writeFile(wb, `TimberLog_All_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
+
+// Deal Sheet Export - Supplier vs Measured Comparison
+function buildDealSheet(purchase, companyName) {
+  const containers = purchase.containers || [];
+  const data = [];
+
+  // Title block
+  data.push([companyName || "Timber Management"]);
+  data.push(["DEAL SHEET"]);
+  data.push([`BL Number: ${purchase.bl_number}`, `BL Date: ${purchase.bl_date}`, `Supplier: ${purchase.supplier_name}`, `Country: ${purchase.country}`]);
+  data.push([]);
+
+  // Column headers
+  data.push([
+    "Sr.",
+    "Container No.",
+    "CBM Gross",
+    "CBM Net",
+    "CBM2 (Measured)",
+    "Short CBM",
+    "PCS Supplier",
+    "PCS by Us",
+    "Avg G Gross",
+    "Avg G Net",
+    "Avg G2 (Measured)",
+    "Bend %",
+    "Measurement Date",
+    "Quality (Supplier)",
+    "Quality (by Us)"
+  ]);
+
+  // Container rows
+  let totalCbmGross = 0;
+  let totalCbmNet = 0;
+  let totalCbm2 = 0;
+  let totalPcsSupplier = 0;
+  let totalPcsByUs = 0;
+  let sumAvgGGross = 0;
+  let sumAvgGNet = 0;
+  let sumAvgG2 = 0;
+  let sumBend = 0;
+  let countContainers = 0;
+
+  containers.forEach((c, idx) => {
+    const logs = c.measurements || [];
+    const cbm2Measured = logs.reduce((sum, lg) => sum + num(lg.cbm2), 0);
+    const pcsByUs = logs.length;
+    const avgG2 = pcsByUs > 0 ? logs.reduce((sum, lg) => sum + num(lg.g2), 0) / pcsByUs : 0;
+
+    const cbmGross = num(c.cbm_gross);
+    const cbmNet = num(c.cbm_net);
+    const pcsSupplier = num(c.pcs_supplier);
+    const avgGirthGross = num(c.avg_girth_gross);
+    const avgGirthNet = num(c.avg_girth_net);
+    
+    const shortCbm = cbmNet - cbm2Measured;
+
+    data.push([
+      c.sr_no || idx + 1,
+      c.container_number || "",
+      +cbmGross.toFixed(4),
+      +cbmNet.toFixed(4),
+      +cbm2Measured.toFixed(4),
+      +shortCbm.toFixed(4),
+      pcsSupplier,
+      pcsByUs,
+      +avgGirthGross.toFixed(4),
+      +avgGirthNet.toFixed(4),
+      +avgG2.toFixed(4),
+      c.bend_percent ? +num(c.bend_percent).toFixed(2) : "",
+      c.measurement_date || "",
+      c.quality_supplier || "",
+      c.quality_by_us || ""
+    ]);
+
+    totalCbmGross += cbmGross;
+    totalCbmNet += cbmNet;
+    totalCbm2 += cbm2Measured;
+    totalPcsSupplier += pcsSupplier;
+    totalPcsByUs += pcsByUs;
+    sumAvgGGross += avgGirthGross;
+    sumAvgGNet += avgGirthNet;
+    sumAvgG2 += avgG2;
+    if (c.bend_percent) sumBend += num(c.bend_percent);
+    countContainers++;
+  });
+
+  const totalShortCbm = totalCbmNet - totalCbm2;
+  const avgGGross = countContainers > 0 ? sumAvgGGross / countContainers : 0;
+  const avgGNet = countContainers > 0 ? sumAvgGNet / countContainers : 0;
+  const avgG2 = countContainers > 0 ? sumAvgG2 / countContainers : 0;
+  const avgBend = countContainers > 0 ? sumBend / countContainers : 0;
+
+  // Totals row
+  data.push([]);
+  data.push([
+    "TOTALS / AVERAGES",
+    "",
+    +totalCbmGross.toFixed(4),
+    +totalCbmNet.toFixed(4),
+    +totalCbm2.toFixed(4),
+    +totalShortCbm.toFixed(4),
+    totalPcsSupplier,
+    totalPcsByUs,
+    +avgGGross.toFixed(4),
+    +avgGNet.toFixed(4),
+    +avgG2.toFixed(4),
+    avgBend > 0 ? +avgBend.toFixed(2) : "",
+    "",
+    "",
+    ""
+  ]);
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // Styling
+  const TITLE_FILL = { fgColor: { rgb: "064E3B" } };
+  const HEADER_FILL_DARK = { fgColor: { rgb: "1E3A8A" } };
+  const TOTALS_FILL = { fgColor: { rgb: "FEF3C7" } };
+  const RED_FILL = { fgColor: { rgb: "FEE2E2" } };
+  const GREEN_FILL = { fgColor: { rgb: "DCFCE7" } };
+  const ORANGE_FILL = { fgColor: { rgb: "FFEDD5" } };
+
+  // Title block styling
+  ["A1", "A2"].forEach((addr) => {
+    if (ws[addr]) ws[addr].s = { font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } }, fill: TITLE_FILL, alignment: { horizontal: "center" } };
+  });
+  
+  ["A3", "B3", "C3", "D3"].forEach((addr) => {
+    if (ws[addr]) ws[addr].s = { font: { bold: true, sz: 12 }, fill: TITLE_FILL, font: { color: { rgb: "FFFFFF" } } };
+  });
+
+  // Merge title cells
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 14 } }, // Company name
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 14 } }, // DEAL SHEET
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } },  // BL info spread
+  ];
+
+  // Header row (row 5)
+  const headerRow = 5;
+  ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"].forEach((col, idx) => {
+    const addr = `${col}${headerRow}`;
+    if (ws[addr]) ws[addr].s = { font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10 }, fill: HEADER_FILL_DARK, alignment: { horizontal: "center", wrapText: true } };
+  });
+
+  // Data rows with conditional formatting
+  containers.forEach((c, idx) => {
+    const row = headerRow + 1 + idx;
+    const logs = c.measurements || [];
+    const cbm2Measured = logs.reduce((sum, lg) => sum + num(lg.cbm2), 0);
+    const cbmNet = num(c.cbm_net);
+    const shortCbm = cbmNet - cbm2Measured;
+    const bendPercent = c.bend_percent ? num(c.bend_percent) : 0;
+
+    // Alternating row fill
+    const alternateFill = idx % 2 === 0 ? { fgColor: { rgb: "F8FAFC" } } : undefined;
+
+    // Short CBM conditional formatting
+    const shortCbmAddr = `F${row}`;
+    if (ws[shortCbmAddr]) {
+      if (shortCbm > 0) {
+        // Loss - RED
+        ws[shortCbmAddr].s = { fill: RED_FILL, font: { bold: true, color: { rgb: "991B1B" } }, alignment: { horizontal: "right" } };
+      } else if (shortCbm < 0) {
+        // Gain - GREEN
+        ws[shortCbmAddr].s = { fill: GREEN_FILL, font: { bold: true, color: { rgb: "065F46" } }, alignment: { horizontal: "right" } };
+      } else {
+        ws[shortCbmAddr].s = { alignment: { horizontal: "right" }, fill: alternateFill };
+      }
+    }
+
+    // Bend % conditional formatting
+    const bendAddr = `L${row}`;
+    if (ws[bendAddr] && bendPercent > 10) {
+      ws[bendAddr].s = { fill: ORANGE_FILL, font: { bold: true, color: { rgb: "9A3412" } }, alignment: { horizontal: "right" } };
+    } else if (ws[bendAddr]) {
+      ws[bendAddr].s = { alignment: { horizontal: "right" }, fill: alternateFill };
+    }
+
+    // Other cells - alternating fill
+    ["A", "B", "C", "D", "E", "G", "H", "I", "J", "K", "M", "N", "O"].forEach((col) => {
+      const addr = `${col}${row}`;
+      if (ws[addr]) ws[addr].s = { alignment: { horizontal: col === "B" || col === "N" || col === "O" ? "left" : "right" }, fill: alternateFill };
+    });
+  });
+
+  // Totals row styling
+  const totalsRow = headerRow + 1 + containers.length + 1;
+  ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"].forEach((col) => {
+    const addr = `${col}${totalsRow}`;
+    if (ws[addr]) ws[addr].s = { fill: TOTALS_FILL, font: { bold: true, sz: 11 }, alignment: { horizontal: col === "A" ? "left" : "right" } };
+  });
+
+  // Column widths
+  ws["!cols"] = [
+    { wch: 5 },  // Sr
+    { wch: 18 }, // Container
+    { wch: 12 }, // CBM Gross
+    { wch: 12 }, // CBM Net
+    { wch: 15 }, // CBM2 Measured
+    { wch: 12 }, // Short CBM
+    { wch: 13 }, // PCS Supplier
+    { wch: 11 }, // PCS by Us
+    { wch: 13 }, // Avg G Gross
+    { wch: 12 }, // Avg G Net
+    { wch: 16 }, // Avg G2 Measured
+    { wch: 10 }, // Bend %
+    { wch: 16 }, // Measurement Date
+    { wch: 18 }, // Quality Supplier
+    { wch: 15 }, // Quality by Us
+  ];
+
+  return ws;
+}
+
+export function exportDealSheet(purchase, companyName) {
+  const wb = XLSX.utils.book_new();
+  const ws = buildDealSheet(purchase, companyName);
+  XLSX.utils.book_append_sheet(wb, ws, "Deal Sheet");
+  XLSX.writeFile(wb, `Deal_Sheet_${purchase.bl_number}.xlsx`);
+}

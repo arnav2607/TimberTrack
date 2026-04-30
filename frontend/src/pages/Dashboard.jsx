@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Search, Download, Filter, Package, Container, BarChart3, FileSpreadsheet, ChevronDown, ChevronUp, X } from "lucide-react";
+import { Search, Download, Filter, Package, Container, BarChart3, FileSpreadsheet, ChevronDown, ChevronUp, X, TrendingUp, AlertCircle, Clock, CheckCircle, Ruler } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import api from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+import api, { getDashboardKPIs } from "@/lib/api";
 import { toast } from "sonner";
 import { fmt, fmtInt } from "@/lib/calc";
 import { useAuth } from "@/context/AuthContext";
-import { exportAllXlsx, exportBLXlsx, exportContainerXlsx } from "@/lib/excel";
+import { exportAllXlsx, exportBLXlsx, exportContainerXlsx, exportDealSheet } from "@/lib/excel";
 
 const STATUS = {
   pending: { text: "Pending", cls: "badge-pending" },
@@ -28,20 +29,22 @@ function StatusBadge({ status }) {
 
 function KpiChip({ label, value, color, testid, icon: Icon }) {
   return (
-    <div className={`bg-white rounded-xl border ${color.border} p-4 sm:p-5 kpi-stripe`} data-testid={testid}>
-      <div className="flex items-center gap-2 mb-1">
-        {Icon && <Icon className={`w-4 h-4 ${color.text}`} strokeWidth={2.5} />}
-        <span className={`text-[10px] sm:text-xs uppercase tracking-wider font-bold ${color.text}`}>{label}</span>
+    <div className={`bg-white rounded-xl border-2 ${color.border} p-4 shadow-sm hover:shadow-md transition-shadow`} data-testid={testid}>
+      <div className="flex items-center gap-2 mb-2">
+        {Icon && <Icon className={`w-5 h-5 ${color.text}`} strokeWidth={2.5} />}
+        <span className={`text-xs uppercase tracking-wider font-bold ${color.text}`}>{label}</span>
       </div>
-      <div className={`font-mono text-2xl sm:text-3xl font-bold ${color.text}`}>{value}</div>
+      <div className={`font-mono text-3xl font-bold ${color.text}`}>{value}</div>
     </div>
   );
 }
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState({ purchases: [], grand_totals: {}, countries: [] });
-  const [filters, setFilters] = useState({ bl_search: "", country: "", date_from: "", date_to: "" });
+  const [kpis, setKpis] = useState(null);
+  const [filters, setFilters] = useState({ bl_search: "", country: "", supplier: "", date_from: "", date_to: "" });
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState({});
 
@@ -55,6 +58,10 @@ export default function Dashboard() {
       if (filters.date_to) params.date_to = filters.date_to;
       const { data } = await api.get("/dashboard/summary", { params });
       setData(data);
+      
+      // Load enhanced KPIs
+      const { data: kpiData } = await getDashboardKPIs();
+      setKpis(kpiData);
     } catch (e) {
       toast.error("Failed to load dashboard");
     } finally {
@@ -66,21 +73,38 @@ export default function Dashboard() {
 
   const grand = data.grand_totals || {};
 
+  // Filter purchases by supplier on frontend
+  const filteredPurchases = useMemo(() => {
+    if (!filters.supplier || filters.supplier === "ALL") return data.purchases;
+    return data.purchases.filter(p => p.supplier_name === filters.supplier);
+  }, [data.purchases, filters.supplier]);
+
+  // Get unique suppliers
+  const suppliers = useMemo(() => {
+    const uniqueSuppliers = [...new Set(data.purchases.map(p => p.supplier_name))];
+    return uniqueSuppliers.sort();
+  }, [data.purchases]);
+
   const reset = () => {
-    setFilters({ bl_search: "", country: "", date_from: "", date_to: "" });
+    setFilters({ bl_search: "", country: "", supplier: "", date_from: "", date_to: "" });
     setTimeout(load, 50);
   };
 
+  const goToMeasure = (blId, containerId) => {
+    navigate('/measurements');
+    // Would need to pass state or use URL params to pre-select
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight">Dashboard</h1>
-          <p className="text-slate-600 mt-1">Reports & insights across your timber operations.</p>
+          <p className="text-slate-600 mt-1">Complete reporting & insights across your timber operations.</p>
         </div>
         <Button
-          onClick={() => exportAllXlsx(data.purchases, user?.company_name)}
-          disabled={!data.purchases?.length}
+          onClick={() => exportAllXlsx(filteredPurchases, user?.company_name)}
+          disabled={!filteredPurchases?.length}
           data-testid="export-all-btn"
           className="h-12 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl"
         >
@@ -88,29 +112,71 @@ export default function Dashboard() {
         </Button>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KpiChip label="Total BLs" value={fmtInt(grand.bls)} icon={Package}
-          color={{ border: "border-slate-200", text: "text-slate-800" }} testid="kpi-bls" />
-        <KpiChip label="Containers" value={fmtInt(grand.containers)} icon={Container}
-          color={{ border: "border-slate-200", text: "text-slate-800" }} testid="kpi-containers" />
-        <KpiChip label="Pieces" value={fmtInt(grand.pieces)} icon={BarChart3}
-          color={{ border: "border-amber-200", text: "text-amber-700" }} testid="kpi-pieces" />
-        <KpiChip label="CBM1" value={fmt(grand.cbm1)}
-          color={{ border: "border-blue-200", text: "text-blue-700" }} testid="kpi-cbm1" />
-        <KpiChip label="CFT1" value={fmt(grand.cft1)}
-          color={{ border: "border-blue-200", text: "text-blue-700" }} testid="kpi-cft1" />
-        <KpiChip label="CBM2" value={fmt(grand.cbm2)}
-          color={{ border: "border-emerald-200", text: "text-emerald-700" }} testid="kpi-cbm2" />
-      </div>
+      {/* Enhanced 3-Row KPI Section */}
+      {kpis && (
+        <div className="space-y-4">
+          {/* Row 1 — Overview */}
+          <div>
+            <h2 className="text-sm uppercase tracking-wider font-bold text-slate-600 mb-3 flex items-center gap-2">
+              <Package className="w-4 h-4" /> Overview
+            </h2>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <KpiChip label="Total BLs" value={fmtInt(kpis.overview.total_bls)} icon={Package}
+                color={{ border: "border-slate-300", text: "text-slate-800" }} testid="kpi-total-bls" />
+              <KpiChip label="Active BLs" value={fmtInt(kpis.overview.active_bls)} icon={TrendingUp}
+                color={{ border: "border-blue-300", text: "text-blue-700" }} testid="kpi-active-bls" />
+              <KpiChip label="Completed BLs" value={fmtInt(kpis.overview.completed_bls)} icon={CheckCircle}
+                color={{ border: "border-emerald-300", text: "text-emerald-700" }} testid="kpi-completed-bls" />
+              <KpiChip label="Total Containers" value={fmtInt(kpis.overview.total_containers)} icon={Container}
+                color={{ border: "border-slate-300", text: "text-slate-800" }} testid="kpi-total-containers" />
+            </div>
+          </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-slate-600" />
-          <span className="text-sm uppercase tracking-wider font-bold text-slate-600">Filters</span>
+          {/* Row 2 — Volume */}
+          <div>
+            <h2 className="text-sm uppercase tracking-wider font-bold text-slate-600 mb-3 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4" /> Volume Measured
+            </h2>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <KpiChip label="Total Pieces" value={fmtInt(kpis.volume.total_pieces)} icon={BarChart3}
+                color={{ border: "border-amber-300", text: "text-amber-700" }} testid="kpi-total-pieces" />
+              <KpiChip label="Total CBM1" value={fmt(kpis.volume.total_cbm1)}
+                color={{ border: "border-blue-300", text: "text-blue-700" }} testid="kpi-total-cbm1" />
+              <KpiChip label="Total CFT1" value={fmt(kpis.volume.total_cft1)}
+                color={{ border: "border-blue-300", text: "text-blue-700" }} testid="kpi-total-cft1" />
+              <KpiChip label="Total CBM2" value={fmt(kpis.volume.total_cbm2)}
+                color={{ border: "border-emerald-300", text: "text-emerald-700" }} testid="kpi-total-cbm2" />
+              <KpiChip label="Total CFT2" value={fmt(kpis.volume.total_cft2)}
+                color={{ border: "border-emerald-300", text: "text-emerald-700" }} testid="kpi-total-cft2" />
+            </div>
+          </div>
+
+          {/* Row 3 — Alerts */}
+          <div>
+            <h2 className="text-sm uppercase tracking-wider font-bold text-slate-600 mb-3 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> Alerts & Status
+            </h2>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <KpiChip label="BLs Not Started" value={fmtInt(kpis.alerts.bls_not_started)} icon={AlertCircle}
+                color={{ border: "border-red-300", text: "text-red-700" }} testid="kpi-bls-not-started" />
+              <KpiChip label="BLs In Progress" value={fmtInt(kpis.alerts.bls_in_progress)} icon={Clock}
+                color={{ border: "border-orange-300", text: "text-orange-600" }} testid="kpi-bls-in-progress" />
+              <KpiChip label="Containers Pending" value={fmtInt(kpis.alerts.containers_pending)} icon={Package}
+                color={{ border: "border-orange-300", text: "text-orange-600" }} testid="kpi-containers-pending" />
+              <KpiChip label="Containers Completed" value={fmtInt(kpis.alerts.containers_completed)} icon={CheckCircle}
+                color={{ border: "border-emerald-300", text: "text-emerald-700" }} testid="kpi-containers-completed" />
+            </div>
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      )}
+
+      {/* Enhanced Filters */}
+      <div className="bg-white rounded-xl border-2 border-slate-200 p-4 sm:p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Filter className="w-5 h-5 text-slate-600" />
+          <span className="text-sm uppercase tracking-wider font-bold text-slate-700">Filters & Search</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <Input
@@ -121,6 +187,17 @@ export default function Dashboard() {
               className="h-12 border-2 pl-9"
             />
           </div>
+          <Select value={filters.supplier || "ALL"} onValueChange={(v) => setFilters({ ...filters, supplier: v })}>
+            <SelectTrigger data-testid="filter-supplier" className="h-12 border-2">
+              <SelectValue placeholder="All Suppliers" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Suppliers</SelectItem>
+              {suppliers.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={filters.country || "ALL"} onValueChange={(v) => setFilters({ ...filters, country: v })}>
             <SelectTrigger data-testid="filter-country" className="h-12 border-2">
               <SelectValue placeholder="All Countries" />
@@ -137,6 +214,7 @@ export default function Dashboard() {
             data-testid="filter-date-from"
             value={filters.date_from}
             onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
+            placeholder="From Date"
             className="h-12 border-2"
           />
           <Input
@@ -144,23 +222,113 @@ export default function Dashboard() {
             data-testid="filter-date-to"
             value={filters.date_to}
             onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
+            placeholder="To Date"
             className="h-12 border-2"
           />
         </div>
         <div className="flex gap-2 mt-3">
-          <Button onClick={load} className="h-11 bg-[#064E3B] hover:bg-[#047857] font-bold" data-testid="apply-filter-btn">
-            Apply
+          <Button onClick={load} data-testid="apply-filters-btn" className="h-11 bg-emerald-700 hover:bg-emerald-800 font-semibold">
+            Apply Filters
           </Button>
-          <Button onClick={reset} variant="outline" className="h-11 border-2" data-testid="reset-filter-btn">
+          <Button variant="outline" onClick={reset} data-testid="reset-filters-btn" className="h-11 border-2">
             <X className="w-4 h-4 mr-1" /> Reset
           </Button>
         </div>
       </div>
 
+      {/* Pending Containers Panel */}
+      {kpis && kpis.pending_containers && kpis.pending_containers.length > 0 && (
+        <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl border-2 border-orange-300 p-5">
+          <h2 className="text-lg font-bold text-orange-900 mb-3 flex items-center gap-2">
+            <Clock className="w-5 h-5" /> ⏳ Pending Measurements ({kpis.pending_containers.length} containers)
+          </h2>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {kpis.pending_containers.slice(0, 20).map((c) => (
+              <div key={c.container_id} className="bg-white rounded-lg p-4 border border-orange-200 flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="font-mono font-bold text-lg text-slate-900">{c.container_number}</span>
+                    <span className="text-xs text-slate-500">BL: {c.bl_number}</span>
+                  </div>
+                  <div className="flex gap-4 text-sm text-slate-600">
+                    <span><strong>Date:</strong> {c.bl_date}</span>
+                    <span><strong>Supplier:</strong> {c.supplier_name}</span>
+                    <span><strong>Country:</strong> {c.country}</span>
+                    {c.pcs_supplier && <span><strong>PCS:</strong> {c.pcs_supplier}</span>}
+                    {c.cbm_gross && <span><strong>CBM Gross:</strong> {c.cbm_gross}</span>}
+                  </div>
+                </div>
+                <Button
+                  onClick={() => navigate('/measurements')}
+                  className="h-11 bg-orange-600 hover:bg-orange-700 font-semibold"
+                >
+                  <Ruler className="w-4 h-4 mr-2" /> Start Measuring
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Pending BLs Panel */}
+      {kpis && kpis.pending_bls && kpis.pending_bls.length > 0 && (
+        <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl border-2 border-red-300 p-5">
+          <h2 className="text-lg font-bold text-red-900 mb-3 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" /> 📋 BLs Awaiting Action ({kpis.pending_bls.length} BLs)
+          </h2>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {kpis.pending_bls.map((bl) => (
+              <div key={bl.purchase_id} className="bg-white rounded-lg p-4 border border-red-200 flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="font-mono font-bold text-lg text-slate-900">{bl.bl_number}</span>
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-bold">Not Started</span>
+                  </div>
+                  <div className="flex gap-4 text-sm text-slate-600">
+                    <span><strong>Date:</strong> {bl.bl_date}</span>
+                    <span><strong>Supplier:</strong> {bl.supplier_name}</span>
+                    <span><strong>Country:</strong> {bl.country}</span>
+                    <span><strong>Containers:</strong> {bl.total_containers}</span>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => navigate('/measurements')}
+                  className="h-11 bg-red-600 hover:bg-red-700 font-semibold"
+                >
+                  <Ruler className="w-4 h-4 mr-2" /> Start Measuring
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Activity Panel */}
+      {kpis && kpis.recent_activity && kpis.recent_activity.length > 0 && (
+        <div className="bg-white rounded-xl border-2 border-emerald-200 p-5">
+          <h2 className="text-lg font-bold text-emerald-900 mb-3 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5" /> Recent Activity (Last 10 containers measured)
+          </h2>
+          <div className="space-y-2">
+            {kpis.recent_activity.map((activity, idx) => (
+              <div key={idx} className="bg-emerald-50 rounded-lg p-3 border border-emerald-200 flex items-center justify-between text-sm">
+                <div className="flex gap-4">
+                  <span className="font-mono font-bold text-slate-900">{activity.container_number}</span>
+                  <span className="text-slate-600">BL: {activity.bl_number}</span>
+                  <span className="text-slate-600"><strong>Pieces:</strong> {activity.pieces}</span>
+                  <span className="text-slate-600"><strong>CBM2:</strong> {fmt(activity.cbm2)}</span>
+                </div>
+                <span className="text-xs text-slate-500">{activity.measurement_date}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* BL grouped list */}
       {loading ? (
         <div className="text-center text-slate-500 py-10">Loading...</div>
-      ) : data.purchases.length === 0 ? (
+      ) : filteredPurchases.length === 0 ? (
         <div className="bg-white rounded-xl border-2 border-dashed border-slate-300 p-10 text-center">
           <BarChart3 className="w-12 h-12 text-slate-400 mx-auto mb-3" />
           <h3 className="font-bold text-lg text-slate-800">No data yet</h3>
@@ -168,7 +336,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <div className="space-y-3">
-          {data.purchases.map((p) => {
+          {filteredPurchases.map((p) => {
             const isOpen = !!expanded[p.id];
             const t = p.totals || {};
             return (
@@ -204,11 +372,21 @@ export default function Dashboard() {
                       variant="outline"
                       size="sm"
                       onClick={() => exportBLXlsx(p, user?.company_name)}
-                      className="h-10 border-2"
+                      className="h-10 border-2 border-blue-300 text-blue-700 hover:bg-blue-50"
                       data-testid={`export-bl-${p.bl_number}`}
                     >
-                      <Download className="w-4 h-4 sm:mr-1" />
-                      <span className="hidden sm:inline">Export BL</span>
+                      <FileSpreadsheet className="w-4 h-4 sm:mr-1" />
+                      <span className="hidden sm:inline">BL Summary</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => exportDealSheet(p, user?.company_name)}
+                      className="h-10 border-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      data-testid={`export-deal-${p.bl_number}`}
+                    >
+                      <BarChart3 className="w-4 h-4 sm:mr-1" />
+                      <span className="hidden sm:inline">Deal Sheet</span>
                     </Button>
                     <Button
                       variant="ghost"
