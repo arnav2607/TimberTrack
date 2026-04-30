@@ -254,6 +254,8 @@ function buildDealSheet(purchase, companyName) {
     "Avg G Gross",
     "Avg G Net",
     "Avg G2 (Measured)",
+    "Avg L1 (Supplier)",
+    "Avg L2 (Measured)",
     "Bend %",
     "Measurement Date",
     "Quality (Supplier)",
@@ -269,6 +271,8 @@ function buildDealSheet(purchase, companyName) {
   let sumAvgGGross = 0;
   let sumAvgGNet = 0;
   let sumAvgG2 = 0;
+  let sumAvgL1 = 0;
+  let sumAvgL2 = 0;
   let sumBend = 0;
   let countContainers = 0;
 
@@ -277,12 +281,14 @@ function buildDealSheet(purchase, companyName) {
     const cbm2Measured = logs.reduce((sum, lg) => sum + num(lg.cbm2), 0);
     const pcsByUs = logs.length;
     const avgG2 = pcsByUs > 0 ? logs.reduce((sum, lg) => sum + num(lg.g2), 0) / pcsByUs : 0;
+    const avgL2 = pcsByUs > 0 ? logs.reduce((sum, lg) => sum + num(lg.l), 0) / pcsByUs : 0;
 
     const cbmGross = num(c.cbm_gross);
     const cbmNet = num(c.cbm_net);
     const pcsSupplier = num(c.pcs_supplier);
     const avgGirthGross = num(c.avg_girth_gross);
     const avgGirthNet = num(c.avg_girth_net);
+    const avgL1 = num(c.l_avg);
     
     const shortCbm = cbmNet - cbm2Measured;
 
@@ -298,6 +304,8 @@ function buildDealSheet(purchase, companyName) {
       +avgGirthGross.toFixed(4),
       +avgGirthNet.toFixed(4),
       +avgG2.toFixed(4),
+      avgL1 ? +avgL1.toFixed(2) : "",
+      +avgL2.toFixed(2),
       c.bend_percent ? +num(c.bend_percent).toFixed(2) : "",
       c.measurement_date || "",
       c.quality_supplier || "",
@@ -312,6 +320,8 @@ function buildDealSheet(purchase, companyName) {
     sumAvgGGross += avgGirthGross;
     sumAvgGNet += avgGirthNet;
     sumAvgG2 += avgG2;
+    sumAvgL1 += avgL1;
+    sumAvgL2 += avgL2;
     if (c.bend_percent) sumBend += num(c.bend_percent);
     countContainers++;
   });
@@ -320,6 +330,8 @@ function buildDealSheet(purchase, companyName) {
   const avgGGross = countContainers > 0 ? sumAvgGGross / countContainers : 0;
   const avgGNet = countContainers > 0 ? sumAvgGNet / countContainers : 0;
   const avgG2 = countContainers > 0 ? sumAvgG2 / countContainers : 0;
+  const avgL1 = countContainers > 0 ? sumAvgL1 / countContainers : 0;
+  const avgL2 = countContainers > 0 ? sumAvgL2 / countContainers : 0;
   const avgBend = countContainers > 0 ? sumBend / countContainers : 0;
 
   // Totals row
@@ -336,6 +348,8 @@ function buildDealSheet(purchase, companyName) {
     +avgGGross.toFixed(4),
     +avgGNet.toFixed(4),
     +avgG2.toFixed(4),
+    avgL1 > 0 ? +avgL1.toFixed(2) : "",
+    +avgL2.toFixed(2),
     avgBend > 0 ? +avgBend.toFixed(2) : "",
     "",
     "",
@@ -363,14 +377,14 @@ function buildDealSheet(purchase, companyName) {
 
   // Merge title cells
   ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 14 } }, // Company name
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 14 } }, // DEAL SHEET
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 16 } }, // Company name (17 columns now)
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 16 } }, // DEAL SHEET
     { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } },  // BL info spread
   ];
 
   // Header row (row 5)
   const headerRow = 5;
-  ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"].forEach((col, idx) => {
+  ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"].forEach((col, idx) => {
     const addr = `${col}${headerRow}`;
     if (ws[addr]) ws[addr].s = { font: { bold: true, color: { rgb: "FFFFFF" }, sz: 10 }, fill: HEADER_FILL_DARK, alignment: { horizontal: "center", wrapText: true } };
   });
@@ -402,7 +416,7 @@ function buildDealSheet(purchase, companyName) {
     }
 
     // Bend % conditional formatting
-    const bendAddr = `L${row}`;
+    const bendAddr = `N${row}`;
     if (ws[bendAddr] && bendPercent > 10) {
       ws[bendAddr].s = { fill: ORANGE_FILL, font: { bold: true, color: { rgb: "9A3412" } }, alignment: { horizontal: "right" } };
     } else if (ws[bendAddr]) {
@@ -410,15 +424,15 @@ function buildDealSheet(purchase, companyName) {
     }
 
     // Other cells - alternating fill
-    ["A", "B", "C", "D", "E", "G", "H", "I", "J", "K", "M", "N", "O"].forEach((col) => {
+    ["A", "B", "C", "D", "E", "G", "H", "I", "J", "K", "L", "M", "O", "P", "Q"].forEach((col) => {
       const addr = `${col}${row}`;
-      if (ws[addr]) ws[addr].s = { alignment: { horizontal: col === "B" || col === "N" || col === "O" ? "left" : "right" }, fill: alternateFill };
+      if (ws[addr]) ws[addr].s = { alignment: { horizontal: col === "B" || col === "P" || col === "Q" ? "left" : "right" }, fill: alternateFill };
     });
   });
 
   // Totals row styling
   const totalsRow = headerRow + 1 + containers.length + 1;
-  ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O"].forEach((col) => {
+  ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q"].forEach((col) => {
     const addr = `${col}${totalsRow}`;
     if (ws[addr]) ws[addr].s = { fill: TOTALS_FILL, font: { bold: true, sz: 11 }, alignment: { horizontal: col === "A" ? "left" : "right" } };
   });
@@ -436,6 +450,8 @@ function buildDealSheet(purchase, companyName) {
     { wch: 13 }, // Avg G Gross
     { wch: 12 }, // Avg G Net
     { wch: 16 }, // Avg G2 Measured
+    { wch: 16 }, // Avg L1 Supplier
+    { wch: 16 }, // Avg L2 Measured
     { wch: 10 }, // Bend %
     { wch: 16 }, // Measurement Date
     { wch: 18 }, // Quality Supplier

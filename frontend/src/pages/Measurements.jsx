@@ -570,16 +570,22 @@ export default function Measurements() {
               <div className="flex items-center gap-3">
                 <Switch
                   checked={markComplete}
-                  onCheckedChange={setMarkComplete}
+                  onCheckedChange={(checked) => {
+                    setMarkComplete(checked);
+                    if (checked) {
+                      // Auto-open completion form when toggled ON
+                      setShowCompletionForm(true);
+                    }
+                  }}
                   data-testid="mark-complete-switch"
                   className="data-[state=checked]:bg-[#064E3B]"
                 />
                 <div>
                   <div className="font-bold text-slate-900 flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5 text-emerald-700" />
-                    Mark Container Loading as COMPLETE
+                    Mark Container as COMPLETE
                   </div>
-                  <div className="text-sm text-slate-500">When on, container status becomes Complete on save.</div>
+                  <div className="text-sm text-slate-500">Toggle ON to open completion form with details (Bend %, Quality, Date)</div>
                 </div>
               </div>
               <Button
@@ -589,22 +595,7 @@ export default function Measurements() {
                 className="h-14 px-6 bg-[#064E3B] hover:bg-[#047857] font-bold text-base rounded-xl"
               >
                 <Save className="w-5 h-5 mr-2" />
-                {saving ? "Saving..." : "Save & Submit"}
-              </Button>
-            </div>
-            
-            {/* Or mark complete with completion form */}
-            <div className="border-t pt-4 flex items-center justify-between">
-              <div className="text-sm text-slate-600">
-                <strong>Or</strong> mark complete with additional details (Bend %, Quality, Date)
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowCompletionForm(true)}
-                className="h-11 border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-semibold"
-              >
-                <CheckCircle2 className="w-4 h-4 mr-2" />
-                Complete with Form
+                {saving ? "Saving..." : "Save Measurements"}
               </Button>
             </div>
           </div>
@@ -612,7 +603,13 @@ export default function Measurements() {
           {/* Completion Form Modal */}
           <CompletionFormModal
             open={showCompletionForm}
-            onOpenChange={setShowCompletionForm}
+            onOpenChange={(isOpen) => {
+              setShowCompletionForm(isOpen);
+              // If user closes modal without saving, turn off the toggle
+              if (!isOpen) {
+                setMarkComplete(false);
+              }
+            }}
             container={containerData}
             onSaved={async () => {
               await loadContainer(containerData.id);
