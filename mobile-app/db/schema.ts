@@ -12,7 +12,7 @@ export const schema = appSchema({
         { name: 'supplier_name', type: 'string' },
         { name: 'country', type: 'string' },
         { name: 'remarks', type: 'string', isOptional: true },
-        { name: 'sync_status', type: 'string' }, // 'pending', 'synced', 'error'
+        { name: 'local_status', type: 'string' }, // 'pending', 'synced', 'error'
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
       ],
@@ -36,7 +36,7 @@ export const schema = appSchema({
         { name: 'measurement_date', type: 'string', isOptional: true },
         { name: 'is_loading_complete', type: 'boolean' },
         { name: 'completed_at', type: 'number', isOptional: true },
-        { name: 'sync_status', type: 'string' },
+        { name: 'local_status', type: 'string' },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
       ],
@@ -55,7 +55,7 @@ export const schema = appSchema({
         { name: 'cbm2', type: 'number' },
         { name: 'cft1', type: 'number' },
         { name: 'cft2', type: 'number' },
-        { name: 'sync_status', type: 'string' },
+        { name: 'local_status', type: 'string' },
         { name: 'created_at', type: 'number' },
       ],
     }),
@@ -64,7 +64,7 @@ export const schema = appSchema({
       columns: [
         { name: 'server_id', type: 'string', isOptional: true, isIndexed: true },
         { name: 'name', type: 'string', isIndexed: true },
-        { name: 'sync_status', type: 'string' },
+        { name: 'local_status', type: 'string' },
         { name: 'created_at', type: 'number' },
       ],
     }),
@@ -73,7 +73,7 @@ export const schema = appSchema({
       columns: [
         { name: 'server_id', type: 'string', isOptional: true, isIndexed: true },
         { name: 'name', type: 'string', isIndexed: true },
-        { name: 'sync_status', type: 'string' },
+        { name: 'local_status', type: 'string' },
         { name: 'created_at', type: 'number' },
       ],
     }),

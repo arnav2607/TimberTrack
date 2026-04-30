@@ -6,6 +6,6 @@ export default class Country extends Model {
 
   @field('server_id') serverId!: string;
   @field('name') name!: string;
-  @field('sync_status') syncStatus!: string;
+  @field('local_status') localStatus!: string;
   @date('created_at') createdAt!: Date;
 }

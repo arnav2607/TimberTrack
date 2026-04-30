@@ -6,7 +6,6 @@ import { usePurchasesStore } from '@/stores/purchasesStore';
 import { colors, spacing } from '@/theme/colors';
 import { calculateAvgGirth, formatDateForInput } from '@/utils/calculations';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { toast } from 'sonner';
 
 interface ContainerForm {
   containerNumber: string;

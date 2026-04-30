@@ -69,7 +69,7 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
             supplierName: p.supplierName,
             country: p.country,
             remarks: p.remarks,
-            syncStatus: p.syncStatus,
+            localStatus: p.localStatus,
             createdAt: p.createdAt,
             containers: containers.map((c: any) => ({
               id: c.id,
@@ -88,7 +88,7 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
               measurementDate: c.measurementDate,
               isLoadingComplete: c.isLoadingComplete,
               completedAt: c.completedAt,
-              syncStatus: c.syncStatus,
+              localStatus: c.localStatus,
             })),
           };
         })
@@ -139,7 +139,7 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
           p.supplierName = data.supplierName;
           p.country = data.country;
           p.remarks = data.remarks || '';
-          p.syncStatus = 'pending';
+          p.localStatus = 'pending';
         });
 
         // Create containers
@@ -164,13 +164,13 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
             container.lAvg = c.lAvg || 0;
             container.qualitySupplier = c.qualitySupplier || '';
             container.isLoadingComplete = false;
-            container.syncStatus = 'pending';
+            container.localStatus = 'pending';
           });
         }
       });
 
       await get().loadPurchases();
-      await get().syncWithServer();
+      // Sync handled by useSync hook (auto + manual)
     } catch (error) {
       console.error('Failed to create purchase:', error);
       throw error;
@@ -201,7 +201,7 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
         const suppliersCollection = database.get('suppliers');
         await suppliersCollection.create((s: any) => {
           s.name = name;
-          s.syncStatus = 'pending';
+          s.localStatus = 'pending';
         });
       });
       await get().loadSuppliers();
@@ -218,11 +218,10 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
         const countriesCollection = database.get('countries');
         await countriesCollection.create((c: any) => {
           c.name = name;
-          c.syncStatus = 'pending';
+          c.localStatus = 'pending';
         });
       });
       await get().loadCountries();
-      await get().syncWithServer();
     } catch (error) {
       console.error('Failed to add country:', error);
       throw error;
@@ -242,7 +241,7 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
         for (const name of commonCountries) {
           await countriesCollection.create((c: any) => {
             c.name = name;
-            c.syncStatus = 'synced';
+            c.localStatus = 'synced';
           });
         }
       });
@@ -253,83 +252,8 @@ export const usePurchasesStore = create<PurchasesState>((set, get) => ({
   },
 
   syncWithServer: async () => {
-    const { user } = useAuthStore.getState();
-    if (!user) return;
-
-    set({ syncing: true });
-    try {
-      // Push pending purchases to server
-      const pendingPurchases = await database
-        .get('purchases')
-        .query(Q.where('sync_status', 'pending'))
-        .fetch();
-
-      for (const purchase of pendingPurchases) {
-        try {
-          const containers = await purchase.containers.fetch();
-          
-          const { data, error } = await supabase.from('purchases').insert({
-            user_id: user.id,
-            bl_number: purchase.blNumber,
-            bl_date: purchase.blDate,
-            supplier_name: purchase.supplierName,
-            country: purchase.country,
-            remarks: purchase.remarks,
-          }).select().single();
-
-          if (!error && data) {
-            // Update purchase with server ID
-            await database.write(async () => {
-              await purchase.update((p: any) => {
-                p.serverId = data.id;
-                p.syncStatus = 'synced';
-              });
-            });
-
-            // Sync containers
-            for (const container of containers) {
-              const { data: containerData, error: containerError } = await supabase
-                .from('containers')
-                .insert({
-                  purchase_id: data.id,
-                  user_id: user.id,
-                  sr_no: container.srNo,
-                  container_number: container.containerNumber,
-                  cbm_gross: container.cbmGross,
-                  cbm_net: container.cbmNet,
-                  pcs_supplier: container.pcsSupplier,
-                  avg_girth_gross: container.avgGirthGross,
-                  avg_girth_net: container.avgGirthNet,
-                  l_avg: container.lAvg,
-                  quality_supplier: container.qualitySupplier,
-                  is_loading_complete: container.isLoadingComplete,
-                })
-                .select()
-                .single();
-
-              if (!containerError && containerData) {
-                await database.write(async () => {
-                  await container.update((c: any) => {
-                    c.serverId = containerData.id;
-                    c.syncStatus = 'synced';
-                  });
-                });
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Failed to sync purchase:', err);
-        }
-      }
-
-      await get().loadPurchases();
-    } catch (error) {
-      console.error('Sync failed:', error);
-    } finally {
-      set({ syncing: false });
-    }
+    // Deprecated in favour of useSync() hook + services/sync.ts.
+    // Kept for store interface stability — no-op.
+    return;
   },
 }));
-
-// Re-export auth store for sync
-import { useAuthStore } from './authStore';

@@ -1,9 +1,10 @@
 import { Model } from '@nozbe/watermelondb';
+import type { Associations } from '@nozbe/watermelondb/Model';
 import { field, date, relation, children } from '@nozbe/watermelondb/decorators';
 
 export default class Container extends Model {
   static table = 'containers';
-  static associations = {
+  static associations: Associations = {
     purchases: { type: 'belongs_to', key: 'purchase_id' },
     log_measurements: { type: 'has_many', foreignKey: 'container_id' },
   };
@@ -24,7 +25,7 @@ export default class Container extends Model {
   @field('measurement_date') measurementDate!: string;
   @field('is_loading_complete') isLoadingComplete!: boolean;
   @field('completed_at') completedAt!: number;
-  @field('sync_status') syncStatus!: string;
+  @field('local_status') localStatus!: string;
   @date('created_at') createdAt!: Date;
   @date('updated_at') updatedAt!: Date;
 

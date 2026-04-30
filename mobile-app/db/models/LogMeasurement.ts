@@ -1,9 +1,10 @@
 import { Model } from '@nozbe/watermelondb';
+import type { Associations } from '@nozbe/watermelondb/Model';
 import { field, date, relation } from '@nozbe/watermelondb/decorators';
 
 export default class LogMeasurement extends Model {
   static table = 'log_measurements';
-  static associations = {
+  static associations: Associations = {
     containers: { type: 'belongs_to', key: 'container_id' },
   };
 
@@ -18,7 +19,7 @@ export default class LogMeasurement extends Model {
   @field('cbm2') cbm2!: number;
   @field('cft1') cft1!: number;
   @field('cft2') cft2!: number;
-  @field('sync_status') syncStatus!: string;
+  @field('local_status') localStatus!: string;
   @date('created_at') createdAt!: Date;
 
   @relation('containers', 'container_id') container: any;

@@ -1,325 +1,194 @@
-# 🎯 TimberLog Pro - Complete Setup Checklist
+# TimberLog Pro — Setup & Run Guide
 
-Use this checklist to set up the TimberLog Pro mobile app from scratch.
+This document explains how to run, build and deploy TimberLog Pro after the agent's
+full code-only build. The codebase is in `/app/mobile-app`.
 
----
+## 1. Prerequisites
 
-## ✅ Step 1: Install Prerequisites
+- Node.js 18+
+- Yarn 1.x
+- An Android device/emulator OR iOS device + Mac with Xcode (for native builds)
+- Expo CLI (`npm install -g expo-cli`)
+- EAS CLI (`npm install -g eas-cli`)
+- A Supabase account (free tier is fine)
+- A RevenueCat account (free tier) — optional, only for paid subscriptions
+- A PostHog account — optional, only for analytics
 
-- [ ] Install Node.js 18+ from https://nodejs.org
-- [ ] Install Yarn: `npm install -g yarn`
-- [ ] Install Expo CLI: `npm install -g expo-cli`
-- [ ] Install EAS CLI: `npm install -g eas-cli`
-- [ ] Create Expo account at https://expo.dev
-- [ ] Install Android Studio (optional, for emulator)
+## 2. WatermelonDB & Expo
 
----
+WatermelonDB requires native modules. **It does NOT work in plain Expo Go.**
+You have two options:
 
-## ✅ Step 2: Project Setup
+### Option A — Use Expo Dev Client (recommended)
 
-- [ ] Navigate to mobile-app directory: `cd /app/mobile-app`
-- [ ] Install dependencies: `yarn install`
-- [ ] Copy `.env.example` to `.env`
-- [ ] Verify all files are present
-
----
-
-## ✅ Step 3: Supabase Setup
-
-### Create Project
-- [ ] Go to https://supabase.com
-- [ ] Click "New Project"
-- [ ] Choose organization
-- [ ] Set database password (SAVE THIS!)
-- [ ] Select region (closest to users)
-- [ ] Wait for project to initialize (2-3 minutes)
-
-### Get Credentials
-- [ ] Go to Project Settings → API
-- [ ] Copy **Project URL**
-- [ ] Copy **anon public** key
-- [ ] Paste both into `.env` file
-
-### Run Database Migration
-- [ ] Go to SQL Editor in Supabase
-- [ ] Create new query
-- [ ] Copy contents of `supabase/migrations/001_initial_schema.sql`
-- [ ] Paste and run query
-- [ ] Verify all tables created (users, purchases, containers, etc.)
-- [ ] Check RLS policies are enabled
-
-### Configure Authentication
-- [ ] Go to Authentication → Providers
-- [ ] Enable **Email** provider
-- [ ] Disable email confirmation (or configure SMTP)
-- [ ] Save settings
-
----
-
-## ✅ Step 4: RevenueCat Setup (Optional - for subscriptions)
-
-- [ ] Sign up at https://www.revenuecat.com
-- [ ] Create new project: "TimberLog Pro"
-- [ ] Click "Add App"
-- [ ] Select **Android**
-- [ ] Enter package name: `com.timberlogpro.app`
-- [ ] Copy **Android SDK Key**
-- [ ] Paste into `.env` → `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`
-
-### Create Products
-- [ ] Go to Products section
-- [ ] Click "Add Product"
-- [ ] Create product: `timberlogpro_monthly`
-  - Display name: "TimberLog Pro Monthly"
-  - Type: Subscription
-- [ ] Create product: `timberlogpro_yearly`
-  - Display name: "TimberLog Pro Yearly"
-  - Type: Subscription
-
-### Create Offering
-- [ ] Go to Offerings
-- [ ] Create offering: "default"
-- [ ] Add both products to offering
-- [ ] Set "default" as current offering
-
----
-
-## ✅ Step 5: EAS Setup
-
-### Login to EAS
-```bash
-eas login
-```
-- [ ] Enter Expo credentials
-
-### Configure Project
 ```bash
 cd /app/mobile-app
+yarn install
+yarn add expo-dev-client
+npx expo prebuild         # generates ios/ and android/ folders
+yarn android              # or yarn ios
+```
+
+### Option B — Use EAS Build for cloud builds
+
+```bash
+eas login
+eas build --platform android --profile development
+# Install the resulting APK on your device
+eas build --platform android --profile production  # for Play Store
+```
+
+## 3. Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env with your real Supabase URL, anon key, RevenueCat keys, PostHog key.
+```
+
+> Note: All `EXPO_PUBLIC_*` vars are bundled into the app at build time.
+> Do NOT put secrets here — only public/anon keys.
+
+## 4. Set Up Supabase
+
+1. Go to https://supabase.com and create a new project.
+2. In the SQL editor, paste & run `supabase/migrations/001_initial_schema.sql`.
+3. In Authentication → Providers, **disable email confirmation** (the app uses
+   `<username>@timberlog.local` synthetic emails internally).
+4. Copy the `Project URL` → `EXPO_PUBLIC_SUPABASE_URL`.
+5. Copy the `anon` key → `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+6. Copy the `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (server-side only).
+
+## 5. Deploy the RevenueCat Webhook (optional — for live subscriptions)
+
+```bash
+# Install Supabase CLI
+brew install supabase/tap/supabase   # macOS
+# or follow https://supabase.com/docs/guides/cli
+
+supabase login
+supabase link --project-ref <your-project-ref>
+
+# Set secrets (only the function can read these)
+supabase secrets set REVENUECAT_WEBHOOK_TOKEN=$(openssl rand -hex 32)
+supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+
+# Deploy
+supabase functions deploy revenuecat-webhook --no-verify-jwt
+```
+
+In **RevenueCat dashboard → Project settings → Integrations → Webhooks**:
+- URL: `https://<project-ref>.functions.supabase.co/revenuecat-webhook`
+- Authorization Header: `Bearer <REVENUECAT_WEBHOOK_TOKEN>`
+
+## 6. RevenueCat Product Setup
+
+1. Create products in Google Play Console / App Store Connect (e.g. `pro_monthly`,
+   `pro_annual`).
+2. In RevenueCat → Products, link those store products.
+3. In RevenueCat → Entitlements, create `pro` entitlement and attach the products.
+4. In RevenueCat → Offerings, create `default` offering with both packages.
+5. Copy the Android SDK key → `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY`.
+6. Copy the iOS SDK key → `EXPO_PUBLIC_REVENUECAT_IOS_KEY`.
+
+## 7. Build for Production (Play Store)
+
+```bash
+# 1. Configure EAS
+eas login
 eas build:configure
-```
-- [ ] Select platform: **Android**
-- [ ] Generate new keystore: **Yes**
 
-### Update app.json
-- [ ] Replace `your-eas-project-id` with actual ID from EAS
-- [ ] Verify package name: `com.timberlogpro.app`
-- [ ] Update versionCode and versionName if needed
-
----
-
-## ✅ Step 6: Test Locally
-
-### Start Development Server
-```bash
-yarn start
-```
-
-### Test on Physical Device
-- [ ] Install **Expo Go** app from Play Store
-- [ ] Scan QR code from terminal
-- [ ] App should open in Expo Go
-
-### Test Key Features
-- [ ] Signup with new account
-- [ ] Verify account created in Supabase (users table)
-- [ ] Login with credentials
-- [ ] Navigate between tabs
-- [ ] Logout and login again
-- [ ] Test offline (turn off WiFi, app should still open)
-
----
-
-## ✅ Step 7: Google Play Console Setup
-
-### Create Developer Account
-- [ ] Go to https://play.google.com/console
-- [ ] Pay $25 registration fee
-- [ ] Complete account verification (wait 1-2 days)
-- [ ] Accept agreements
-
-### Create App
-- [ ] Click "Create app"
-- [ ] App name: **TimberLog Pro**
-- [ ] Default language: English (US)
-- [ ] App type: App
-- [ ] Free or paid: Free
-- [ ] Create app
-
-### Complete Store Listing
-- [ ] Fill in short description (80 chars)
-- [ ] Fill in full description (4000 chars) - see PLAYSTORE_SETUP.md
-- [ ] Upload app icon 512x512
-- [ ] Upload feature graphic 1024x500
-- [ ] Upload at least 2 screenshots 1080x1920
-- [ ] Set category: Business
-- [ ] Add contact email
-
-### Complete Questionnaires
-- [ ] Content rating questionnaire
-- [ ] Target audience
-- [ ] Privacy policy (create and host, then add URL)
-- [ ] Data safety form
-
-### Create In-App Products (for subscriptions)
-- [ ] Go to Monetize → Products → Subscriptions
-- [ ] Create subscription: `timberlogpro_monthly` (₹999/month)
-- [ ] Create subscription: `timberlogpro_yearly` (₹8,999/year)
-- [ ] Set 14-day free trial for both
-- [ ] Activate products
-
----
-
-## ✅ Step 8: Build Production APK/AAB
-
-### Build APK (for testing)
-```bash
-eas build --platform android --profile preview
-```
-- [ ] Wait for build (~15 minutes)
-- [ ] Download APK
-- [ ] Install on test device
-- [ ] Test all features
-
-### Build AAB (for Play Store)
-```bash
+# 2. Build AAB
 eas build --platform android --profile production
-```
-- [ ] Wait for build (~15 minutes)
-- [ ] Download AAB or note build ID for EAS Submit
 
----
-
-## ✅ Step 9: Internal Testing
-
-### Upload to Internal Testing Track
-```bash
-eas submit --platform android
-```
-OR
-- [ ] Go to Play Console → Testing → Internal testing
-- [ ] Create new release
-- [ ] Upload AAB
-- [ ] Add release notes
-- [ ] Save and review
-- [ ] Start rollout
-
-### Invite Testers
-- [ ] Add tester email addresses
-- [ ] Send invitation link
-- [ ] Ask testers to install and test
-
-### Test Checklist for Testers
-- [ ] Install app
-- [ ] Create account (signup)
-- [ ] Login
-- [ ] Navigate all tabs
-- [ ] Test offline mode (airplane mode)
-- [ ] Test subscription purchase (sandbox)
-- [ ] Report any bugs
-
----
-
-## ✅ Step 10: Submit for Review
-
-### Pre-Launch Checklist
-- [ ] All store listing fields complete
-- [ ] All questionnaires complete
-- [ ] AAB uploaded
-- [ ] Internal testing passed
-- [ ] No critical bugs
-- [ ] Privacy policy live
-- [ ] In-app products configured (if applicable)
-
-### Submit
-- [ ] Go to Publishing overview
-- [ ] Click "Send for review"
-- [ ] Wait 1-3 days for approval
-
----
-
-## ✅ Step 11: Post-Launch
-
-### Monitor
-- [ ] Check Play Console daily for reviews
-- [ ] Monitor crash reports
-- [ ] Track download stats
-- [ ] Check Android Vitals
-
-### Respond
-- [ ] Reply to user reviews within 24 hours
-- [ ] Fix critical bugs immediately
-- [ ] Plan feature updates
-
-### Update
-- [ ] Increment version numbers
-- [ ] Build new AAB
-- [ ] Upload to production
-- [ ] Add release notes
-
----
-
-## 📝 Environment Variables Reference
-
-```env
-# Supabase (REQUIRED)
-EXPO_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-
-# RevenueCat (OPTIONAL - for subscriptions)
-EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=your-android-key
-
-# PostHog (OPTIONAL - for analytics)
-EXPO_PUBLIC_POSTHOG_KEY=your-posthog-key
-EXPO_PUBLIC_POSTHOG_HOST=https://app.posthog.com
+# 3. Submit to Play Store
+eas submit --platform android --latest
 ```
 
----
+See `PLAYSTORE_SETUP.md` for full Play Console setup.
 
-## 🚨 Troubleshooting
+## 8. Smoke Test
 
-### Build Fails
-- Check `eas.json` configuration
-- Verify package name matches everywhere
-- Check for syntax errors in code
-- Run `eas build:configure` again
+After installing on a device:
 
-### Supabase Connection Fails
-- Verify URL and anon key in `.env`
-- Check if RLS policies are enabled
-- Verify Supabase project is not paused
+1. **Sign Up** → create account → trial (14 days) auto-activates
+2. **Add Purchase** → BL number, supplier, country, container(s)
+3. **Measure** → tap container → enter LE1, L, G1, G2 → save → verify auto-advance
+4. **Complete** → tap top-right complete icon → fill bend %, quality → mark complete
+5. **Dashboard** → verify KPIs update, filters work
+6. **Export** → tap Excel icon → file shared via system share sheet
+7. **Sync** → tap sync icon → check last sync time updates
+8. **Settings → Upgrade** → opens paywall (will show "subscriptions not configured" if
+   RevenueCat not yet wired up)
 
-### App Crashes on Startup
-- Check logs: `npx react-native log-android`
-- Verify all dependencies installed
-- Clear cache: `yarn start --clear`
+## 9. Architecture
 
-### Subscription Not Working
-- Verify RevenueCat SDK key
-- Check if products are active in Play Console
-- Test in sandbox mode first
-- Check RevenueCat dashboard logs
+```
+mobile-app/
+├── app/                       # Expo Router file-based routes
+│   ├── (auth)/                #   — login, signup
+│   ├── (tabs)/                #   — purchases, measure, dashboard, settings
+│   │   ├── purchases/         #     list, add, [id] (detail)
+│   │   ├── measure/           #     index, containers, feed, complete
+│   │   ├── dashboard/         #     KPI dashboard
+│   │   └── settings/          #     profile, sub status, sync, sign-out
+│   ├── paywall.tsx            # RevenueCat purchase screen
+│   └── _layout.tsx            # Root: PaperProvider + redirect logic
+│
+├── db/                        # WatermelonDB (offline-first SQLite)
+│   ├── schema.ts              # Tables & columns
+│   └── models/                # Decorated TS classes
+│
+├── stores/                    # Zustand state
+│   ├── authStore.ts           # session, profile
+│   ├── purchasesStore.ts      # purchases CRUD (local DB)
+│   └── measurementsStore.ts   # log measurements per container
+│
+├── hooks/                     # Custom hooks
+│   ├── useAuth.ts             # auth + subscription
+│   └── useSync.ts             # cloud sync (auto + manual)
+│
+├── services/                  # Side-effect services
+│   ├── supabase.ts            # supabase client
+│   ├── sync.ts                # bidirectional sync engine
+│   ├── excel.ts               # XLSX deal-sheet export + share
+│   ├── revenuecat.ts          # subscription SDK wrapper
+│   └── analytics.ts           # PostHog wrapper
+│
+├── theme/                     # colours, spacing, typography
+├── utils/calculations.ts      # CBM/CFT/avg girth/log calcs
+└── supabase/
+    ├── migrations/            # SQL schema
+    └── functions/             # Edge functions (revenuecat webhook)
+```
 
----
+## 10. What's Live vs Stubbed
 
-## 📞 Get Help
+| Feature | Status |
+|---|---|
+| Auth (signup/login/logout) | ✅ Live (Supabase) |
+| Purchases CRUD (local) | ✅ Live (WatermelonDB) |
+| Measurements entry + auto-advance | ✅ Live |
+| Container completion form | ✅ Live |
+| Dashboard KPIs + filters | ✅ Live |
+| Excel deal-sheet export | ✅ Live (XLSX + expo-sharing) |
+| Cloud sync (push + pull) | ✅ Live (Supabase) |
+| RevenueCat paywall UI | ✅ Live UI; needs RC keys + products to function |
+| Subscription webhook | ✅ Edge function ready; deploy to activate |
+| PostHog analytics | ✅ Wired; needs key |
 
-- **Expo Docs**: https://docs.expo.dev
-- **Supabase Docs**: https://supabase.com/docs
-- **RevenueCat Docs**: https://docs.revenuecat.com
-- **Play Console Help**: https://support.google.com/googleplay/android-developer
+## 11. Known Caveats
 
----
+- **Supabase signup** uses synthetic email `<username>@timberlog.local`. You **must
+  disable email confirmation** in Supabase auth settings.
+- **WatermelonDB** does not work in plain Expo Go. Use Expo Dev Client.
+- **Excel export** uses base64 + expo-sharing; on Web it falls back to a download.
+- The **Free tier hard caps** (max 3 BLs / 10 containers) are NOT enforced
+  client-side yet — the paywall hook reads `subscription_status`, but you should add
+  enforcement in `purchasesStore.createPurchase` if needed.
 
-## 🎉 You're Done!
+## 12. Where to Edit
 
-Once you complete this checklist, your TimberLog Pro app will be:
-- ✅ Built and ready
-- ✅ Deployed to Play Store
-- ✅ Available for download
-- ✅ Monetized via subscriptions
-- ✅ Syncing to cloud
-- ✅ Production-ready!
-
-**Next Steps**: Build remaining features (Purchases, Measurements, Dashboard, Excel Export) using the foundation provided.
-
-Good luck! 🚀
+- Add a new KPI → `app/(tabs)/dashboard/index.tsx` `kpis` useMemo
+- Tweak Excel columns → `services/excel.ts` `buildRows`
+- Change paywall copy → `app/paywall.tsx` `FEATURES` array
+- Add a new entitlement gate → `hooks/useAuth.ts` `canAccessFeature`

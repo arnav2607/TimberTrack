@@ -14,9 +14,8 @@ export default function ContainersScreen() {
   const purchase = purchases.find(p => p.id === blId);
   const containers = purchase?.containers || [];
 
-  const getContainerStatus = (container: any) => {
+  const getContainerStatus = (container: any): 'completed' | 'in_progress' | 'pending' => {
     if (container.isLoadingComplete) return 'completed';
-    // Check if has measurements (we'll implement this later)
     return 'pending';
   };
 
