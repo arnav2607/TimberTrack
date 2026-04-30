@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Package, Pencil, Trash2, X, ChevronRight, Calendar, Building2, Globe2, FileText, Container } from "lucide-react";
+import { Plus, Package, Pencil, Trash2, X, ChevronRight, Calendar, Building2, Globe2, FileText, Container, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,14 +15,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import api, { formatErr } from "@/lib/api";
+import api, { formatErr, getSuppliers, createSupplier, getCountries, createCountry, seedCountries } from "@/lib/api";
 import { toast } from "sonner";
-
-const COUNTRIES = [
-  "Cameroon", "Gabon", "Congo", "Ghana", "Nigeria", "Liberia",
-  "Equatorial Guinea", "Ivory Coast", "Mozambique", "Tanzania",
-  "Myanmar", "Malaysia", "Indonesia", "Brazil", "Other",
-];
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 const STATUS_LABEL = {
   pending: { text: "Pending", cls: "badge-pending", dot: "bg-slate-400" },
@@ -45,16 +40,248 @@ function StatusBadge({ status }) {
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+// Helper to calculate avg girth
+const calcAvgGirth = (cbm, pcs) => {
+  if (!cbm || !pcs || pcs === 0) return null;
+  return ((cbm * 35.315) / pcs).toFixed(4);
+};
+
+// Container Card Component
+function ContainerCard({ container, index, onUpdate, onRemove, isExisting }) {
+  const [isOpen, setIsOpen] = useState(true);
+  
+  const updateField = (field, value) => {
+    onUpdate(index, { ...container, [field]: value });
+  };
+
+  const avgGirthGross = calcAvgGirth(container.cbm_gross, container.pcs_supplier);
+  const avgGirthNet = calcAvgGirth(container.cbm_net, container.pcs_supplier);
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="border-2 rounded-lg mb-3">
+      <div className="bg-slate-50 p-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-md ${isExisting ? 'bg-slate-200' : 'bg-emerald-100'} flex items-center justify-center font-mono font-bold`}>
+            {container.sr_no || index + 1}
+          </div>
+          <div>
+            <div className="font-mono font-bold text-base">
+              {container.container_number || <span className="text-slate-400">New Container</span>}
+            </div>
+            {container.cbm_gross && (
+              <div className="text-xs text-slate-600">
+                CBM Gross: {container.cbm_gross} | PCS: {container.pcs_supplier}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {!isExisting && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => onRemove(index)}
+              className="h-8 w-8"
+            >
+              <X className="w-4 h-4 text-rose-600" />
+            </Button>
+          )}
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+      </div>
+      
+      <CollapsibleContent>
+        <div className="p-4 space-y-4 bg-white">
+          {/* Container Number */}
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-wider font-semibold">Container Number *</Label>
+            <Input
+              value={container.container_number || ""}
+              onChange={(e) => updateField("container_number", e.target.value)}
+              placeholder="MSCU1234567"
+              disabled={isExisting}
+              className="h-11 border-2 font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* CBM Gross */}
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider font-semibold">CBM Gross *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={container.cbm_gross || ""}
+                onChange={(e) => updateField("cbm_gross", parseFloat(e.target.value) || null)}
+                placeholder="0.00"
+                disabled={isExisting}
+                className="h-11 border-2"
+              />
+            </div>
+
+            {/* CBM Net */}
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider font-semibold">CBM Net *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={container.cbm_net || ""}
+                onChange={(e) => updateField("cbm_net", parseFloat(e.target.value) || null)}
+                placeholder="0.00"
+                disabled={isExisting}
+                className="h-11 border-2"
+              />
+            </div>
+
+            {/* PCS Supplier */}
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider font-semibold">PCS Supplier *</Label>
+              <Input
+                type="number"
+                value={container.pcs_supplier || ""}
+                onChange={(e) => updateField("pcs_supplier", parseInt(e.target.value) || null)}
+                placeholder="0"
+                disabled={isExisting}
+                className="h-11 border-2"
+              />
+            </div>
+
+            {/* L Avg */}
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider font-semibold">L Avg (Optional)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={container.l_avg || ""}
+                onChange={(e) => updateField("l_avg", parseFloat(e.target.value) || null)}
+                placeholder="0.00"
+                disabled={isExisting}
+                className="h-11 border-2"
+              />
+            </div>
+          </div>
+
+          {/* Quality by Supplier */}
+          <div className="space-y-2">
+            <Label className="text-xs uppercase tracking-wider font-semibold">Quality by Supplier (Optional)</Label>
+            <Input
+              value={container.quality_supplier || ""}
+              onChange={(e) => updateField("quality_supplier", e.target.value)}
+              placeholder="e.g. Grade A, N5V"
+              disabled={isExisting}
+              className="h-11 border-2"
+            />
+          </div>
+
+          {/* Auto-calculated Avg Girth chips */}
+          {avgGirthGross && avgGirthNet && (
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Badge className="bg-green-100 text-green-800 text-sm px-3 py-1.5 font-mono">
+                Avg Girth Gross: {avgGirthGross}
+              </Badge>
+              <Badge className="bg-blue-100 text-blue-800 text-sm px-3 py-1.5 font-mono">
+                Avg Girth Net: {avgGirthNet}
+              </Badge>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function PurchaseDialog({ open, onOpenChange, editing, onSaved }) {
   const [form, setForm] = useState({
     bl_number: "", bl_date: todayISO(), supplier_name: "",
-    country: "Cameroon", remarks: "",
+    country: "", remarks: "",
   });
-  const [containers, setContainers] = useState([{ container_number: "" }]);
+  const [containers, setContainers] = useState([{ container_number: "", cbm_gross: null, cbm_net: null, pcs_supplier: null, l_avg: null, quality_supplier: "" }]);
   const [newContainers, setNewContainers] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [customCountry, setCustomCountry] = useState("");
+  
+  // Supplier & Country management
+  const [suppliers, setSuppliers] = useState([]);
+  const [countries, setCountries] = useState([]);
+  const [showAddSupplier, setShowAddSupplier] = useState(false);
+  const [showAddCountry, setShowAddCountry] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [newCountryName, setNewCountryName] = useState("");
+  
   const isEdit = !!editing;
+
+  // Load suppliers and countries
+  useEffect(() => {
+    if (open) {
+      loadSuppliers();
+      loadCountries();
+    }
+  }, [open]);
+
+  const loadSuppliers = async () => {
+    try {
+      const { data } = await getSuppliers();
+      setSuppliers(data);
+    } catch (e) {
+      console.error("Failed to load suppliers", e);
+    }
+  };
+
+  const loadCountries = async () => {
+    try {
+      const { data } = await getCountries();
+      if (data.length === 0) {
+        // Seed countries for first-time users
+        await seedCountries();
+        const { data: seeded } = await getCountries();
+        setCountries(seeded);
+      } else {
+        setCountries(data);
+      }
+    } catch (e) {
+      console.error("Failed to load countries", e);
+    }
+  };
+
+  const handleAddSupplier = async () => {
+    const trimmed = newSupplierName.trim();
+    if (!trimmed) {
+      toast.error("Supplier name required");
+      return;
+    }
+    try {
+      const { data } = await createSupplier(trimmed);
+      setSuppliers([...suppliers, data]);
+      setForm({ ...form, supplier_name: data.name });
+      setNewSupplierName("");
+      setShowAddSupplier(false);
+      toast.success("Supplier added");
+    } catch (e) {
+      toast.error("Failed to add supplier");
+    }
+  };
+
+  const handleAddCountry = async () => {
+    const trimmed = newCountryName.trim();
+    if (!trimmed) {
+      toast.error("Country name required");
+      return;
+    }
+    try {
+      const { data } = await createCountry(trimmed);
+      setCountries([...countries, data]);
+      setForm({ ...form, country: data.name });
+      setNewCountryName("");
+      setShowAddCountry(false);
+      toast.success("Country added");
+    } catch (e) {
+      toast.error("Failed to add country");
+    }
+  };
 
   useEffect(() => {
     if (editing) {
@@ -62,41 +289,74 @@ function PurchaseDialog({ open, onOpenChange, editing, onSaved }) {
         bl_number: editing.bl_number || "",
         bl_date: editing.bl_date || todayISO(),
         supplier_name: editing.supplier_name || "",
-        country: editing.country || "Cameroon",
+        country: editing.country || "",
         remarks: editing.remarks || "",
       });
       setContainers(editing.containers || []);
       setNewContainers([]);
     } else if (open) {
-      setForm({ bl_number: "", bl_date: todayISO(), supplier_name: "", country: "Cameroon", remarks: "" });
-      setContainers([{ container_number: "" }]);
+      setForm({ bl_number: "", bl_date: todayISO(), supplier_name: "", country: "", remarks: "" });
+      setContainers([{ container_number: "", cbm_gross: null, cbm_net: null, pcs_supplier: null, l_avg: null, quality_supplier: "" }]);
       setNewContainers([]);
     }
   }, [editing, open]);
 
-  const updateContainer = (idx, val, isNew = false) => {
+  const updateContainer = (idx, updatedContainer, isNew = false) => {
     if (isNew) {
-      setNewContainers((arr) => arr.map((c, i) => (i === idx ? { ...c, container_number: val } : c)));
+      setNewContainers((arr) => arr.map((c, i) => (i === idx ? updatedContainer : c)));
     } else {
-      setContainers((arr) => arr.map((c, i) => (i === idx ? { ...c, container_number: val } : c)));
+      setContainers((arr) => arr.map((c, i) => (i === idx ? updatedContainer : c)));
+    }
+  };
+
+  const removeContainer = (idx, isNew = false) => {
+    if (isNew) {
+      setNewContainers(newContainers.filter((_, i) => i !== idx));
+    } else {
+      if (containers.length > 1) {
+        setContainers(containers.filter((_, i) => i !== idx));
+      }
+    }
+  };
+
+  const addNewContainer = () => {
+    const newC = { container_number: "", cbm_gross: null, cbm_net: null, pcs_supplier: null, l_avg: null, quality_supplier: "" };
+    if (isEdit) {
+      setNewContainers([...newContainers, newC]);
+    } else {
+      setContainers([...containers, newC]);
     }
   };
 
   const submit = async () => {
-    const country = form.country === "Other" ? customCountry.trim() : form.country;
     if (!form.bl_number.trim()) return toast.error("BL Number required");
     if (!form.bl_date) return toast.error("BL Date required");
     if (!form.supplier_name.trim()) return toast.error("Supplier required");
-    if (!country) return toast.error("Country required");
+    if (!form.country.trim()) return toast.error("Country required");
+    
     setSaving(true);
     try {
       if (isEdit) {
-        const cleanNew = newContainers.filter((c) => c.container_number.trim()).map((c) => ({ container_number: c.container_number.trim() }));
-        await api.patch(`/purchases/${editing.id}`, { ...form, country, new_containers: cleanNew });
+        const cleanNew = newContainers.filter((c) => c.container_number.trim()).map((c) => ({
+          container_number: c.container_number.trim(),
+          cbm_gross: c.cbm_gross,
+          cbm_net: c.cbm_net,
+          pcs_supplier: c.pcs_supplier,
+          l_avg: c.l_avg,
+          quality_supplier: c.quality_supplier,
+        }));
+        await api.patch(`/purchases/${editing.id}`, { ...form, new_containers: cleanNew });
       } else {
-        const cleanContainers = containers.filter((c) => c.container_number.trim()).map((c) => ({ container_number: c.container_number.trim() }));
+        const cleanContainers = containers.filter((c) => c.container_number.trim()).map((c) => ({
+          container_number: c.container_number.trim(),
+          cbm_gross: c.cbm_gross,
+          cbm_net: c.cbm_net,
+          pcs_supplier: c.pcs_supplier,
+          l_avg: c.l_avg,
+          quality_supplier: c.quality_supplier,
+        }));
         if (cleanContainers.length === 0) return toast.error("At least one container required");
-        await api.post("/purchases", { ...form, country, containers: cleanContainers });
+        await api.post("/purchases", { ...form, containers: cleanContainers });
       }
       toast.success(isEdit ? "Purchase updated" : "Purchase saved");
       onSaved?.();
@@ -111,7 +371,7 @@ function PurchaseDialog({ open, onOpenChange, editing, onSaved }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="max-w-4xl max-h-[90vh] overflow-y-auto"
         data-testid="purchase-dialog"
       >
         <DialogHeader>
@@ -140,36 +400,78 @@ function PurchaseDialog({ open, onOpenChange, editing, onSaved }) {
                 className="h-12 border-2 text-base"
               />
             </div>
+            
+            {/* Supplier with Add functionality */}
             <div className="space-y-2">
               <Label className="text-sm uppercase tracking-wider font-semibold">Supplier</Label>
-              <Input
-                data-testid="supplier-input"
-                value={form.supplier_name}
-                onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
-                placeholder="e.g. Africa Forestry Co"
-                className="h-12 border-2 text-base"
-              />
+              <div className="flex gap-2">
+                <Select value={form.supplier_name} onValueChange={(v) => setForm({ ...form, supplier_name: v })}>
+                  <SelectTrigger data-testid="supplier-select" className="h-12 border-2 text-base">
+                    <SelectValue placeholder="Select supplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowAddSupplier(!showAddSupplier)}
+                  className="h-12 border-2"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+              {showAddSupplier && (
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    placeholder="New supplier name"
+                    value={newSupplierName}
+                    onChange={(e) => setNewSupplierName(e.target.value)}
+                    className="h-10 border-2"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddSupplier()}
+                  />
+                  <Button onClick={handleAddSupplier} size="sm" className="bg-emerald-700">Add</Button>
+                </div>
+              )}
             </div>
+            
+            {/* Country with Add functionality */}
             <div className="space-y-2">
               <Label className="text-sm uppercase tracking-wider font-semibold">Country</Label>
-              <Select value={form.country} onValueChange={(v) => setForm({ ...form, country: v })}>
-                <SelectTrigger data-testid="country-select" className="h-12 border-2 text-base">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COUNTRIES.map((c) => (
-                    <SelectItem key={c} value={c} data-testid={`country-${c}`}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {form.country === "Other" && (
-                <Input
-                  placeholder="Custom country"
-                  value={customCountry}
-                  onChange={(e) => setCustomCountry(e.target.value)}
-                  className="h-12 border-2 mt-2"
-                  data-testid="custom-country-input"
-                />
+              <div className="flex gap-2">
+                <Select value={form.country} onValueChange={(v) => setForm({ ...form, country: v })}>
+                  <SelectTrigger data-testid="country-select" className="h-12 border-2 text-base">
+                    <SelectValue placeholder="Select country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countries.map((c) => (
+                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowAddCountry(!showAddCountry)}
+                  className="h-12 border-2"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+              {showAddCountry && (
+                <div className="flex gap-2 mt-2">
+                  <Input
+                    placeholder="New country name"
+                    value={newCountryName}
+                    onChange={(e) => setNewCountryName(e.target.value)}
+                    className="h-10 border-2"
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddCountry()}
+                  />
+                  <Button onClick={handleAddCountry} size="sm" className="bg-emerald-700">Add</Button>
+                </div>
               )}
             </div>
           </div>
@@ -195,59 +497,36 @@ function PurchaseDialog({ open, onOpenChange, editing, onSaved }) {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => (isEdit ? setNewContainers([...newContainers, { container_number: "" }]) : setContainers([...containers, { container_number: "" }]))}
+                onClick={addNewContainer}
                 data-testid="add-container-row"
                 className="h-10 border-2"
               >
-                <Plus className="w-4 h-4 mr-1" /> Add row
+                <Plus className="w-4 h-4 mr-1" /> Add Container
               </Button>
             </div>
 
-            {/* Existing containers (edit mode read-only with measurement check) */}
+            {/* Existing containers (edit mode - read-only) */}
             {isEdit && (containers || []).map((c, idx) => (
-              <div key={c.id || idx} className="flex items-center gap-2 mb-2">
-                <div className="w-10 h-10 rounded-md bg-slate-100 flex items-center justify-center font-mono font-bold text-sm">
-                  {c.sr_no ?? idx + 1}
-                </div>
-                <Input
-                  value={c.container_number}
-                  disabled
-                  className="h-12 border-2 font-mono text-base bg-slate-50"
-                  data-testid={`existing-container-${idx}`}
-                />
-                <span className="text-xs text-slate-500 px-2 whitespace-nowrap">
-                  {c.log_count ?? 0} logs
-                </span>
-              </div>
+              <ContainerCard
+                key={c.id || idx}
+                container={c}
+                index={idx}
+                onUpdate={() => {}}
+                onRemove={() => {}}
+                isExisting={true}
+              />
             ))}
 
-            {/* New rows */}
+            {/* New containers */}
             {(isEdit ? newContainers : containers).map((c, idx) => (
-              <div key={`new-${idx}`} className="flex items-center gap-2 mb-2">
-                <div className="w-10 h-10 rounded-md bg-emerald-50 text-emerald-800 flex items-center justify-center font-mono font-bold text-sm">
-                  {isEdit ? (containers.length + idx + 1) : idx + 1}
-                </div>
-                <Input
-                  value={c.container_number}
-                  onChange={(e) => updateContainer(idx, e.target.value, isEdit)}
-                  placeholder="MSCU1234567"
-                  className="h-12 border-2 font-mono text-base"
-                  data-testid={`container-input-${idx}`}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10"
-                  onClick={() => {
-                    if (isEdit) setNewContainers(newContainers.filter((_, i) => i !== idx));
-                    else if (containers.length > 1) setContainers(containers.filter((_, i) => i !== idx));
-                  }}
-                  data-testid={`remove-container-${idx}`}
-                >
-                  <X className="w-5 h-5 text-rose-600" />
-                </Button>
-              </div>
+              <ContainerCard
+                key={`new-${idx}`}
+                container={c}
+                index={isEdit ? containers.length + idx : idx}
+                onUpdate={(i, updated) => updateContainer(i, updated, isEdit)}
+                onRemove={(i) => removeContainer(i, isEdit)}
+                isExisting={false}
+              />
             ))}
           </div>
         </div>

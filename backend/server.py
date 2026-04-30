@@ -98,6 +98,11 @@ class AuthResponse(BaseModel):
 
 class ContainerIn(BaseModel):
     container_number: str
+    cbm_gross: Optional[float] = None
+    cbm_net: Optional[float] = None
+    pcs_supplier: Optional[int] = None
+    l_avg: Optional[float] = None
+    quality_supplier: Optional[str] = None
 
 
 class PurchaseIn(BaseModel):
@@ -134,6 +139,20 @@ class CompleteIn(BaseModel):
     is_complete: bool
 
 
+class CompletionFormIn(BaseModel):
+    bend_percent: Optional[float] = None
+    quality_by_us: Optional[str] = None
+    measurement_date: Optional[str] = None  # ISO date string
+
+
+class SupplierIn(BaseModel):
+    name: str
+
+
+class CountryIn(BaseModel):
+    name: str
+
+
 # ----- Helpers -----
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -148,6 +167,13 @@ def calc_log(le1: float, l: float, g1: float, g2: float) -> dict:  # noqa: E741
         "cft1": round(cbm1 * 35.315, 6),
         "cft2": round(cbm2 * 35.315, 6),
     }
+
+
+def calc_avg_girth(cbm: float, pcs: int) -> float:
+    """Calculate average girth: (CBM × 35.315) / PCS"""
+    if pcs == 0:
+        return 0.0
+    return round((cbm * 35.315) / pcs, 4)
 
 
 async def container_status_for(container_id: str) -> str:
@@ -264,13 +290,33 @@ async def create_purchase(payload: PurchaseIn, current=Depends(get_current_user)
     }
     await db.purchases.insert_one(pdoc)
     for idx, c in enumerate(payload.containers, start=1):
+        # Calculate avg girth if we have the data
+        avg_girth_gross = None
+        avg_girth_net = None
+        if c.cbm_gross and c.pcs_supplier:
+            avg_girth_gross = calc_avg_girth(c.cbm_gross, c.pcs_supplier)
+        if c.cbm_net and c.pcs_supplier:
+            avg_girth_net = calc_avg_girth(c.cbm_net, c.pcs_supplier)
+        
         cdoc = {
             "id": str(uuid.uuid4()),
             "purchase_id": purchase_id,
             "user_id": user_id,
             "sr_no": idx,
             "container_number": c.container_number.strip(),
+            "cbm_gross": c.cbm_gross,
+            "cbm_net": c.cbm_net,
+            "pcs_supplier": c.pcs_supplier,
+            "avg_girth_gross": avg_girth_gross,
+            "avg_girth_net": avg_girth_net,
+            "l_avg": c.l_avg,
+            "quality_supplier": c.quality_supplier,
+            "bend_percent": None,
+            "quality_by_us": None,
+            "measurement_date": None,
+            "completed_at": None,
             "is_loading_complete": False,
+            "loading_complete_at": None,
             "created_at": now_iso(),
         }
         await db.containers.insert_one(cdoc)
@@ -312,13 +358,33 @@ async def update_purchase(purchase_id: str, payload: PurchaseUpdateIn, current=D
         max_sr = await db.containers.find({"purchase_id": purchase_id}).sort("sr_no", -1).to_list(1)
         next_sr = (max_sr[0]["sr_no"] + 1) if max_sr else 1
         for c in payload.new_containers:
+            # Calculate avg girth if we have the data
+            avg_girth_gross = None
+            avg_girth_net = None
+            if c.cbm_gross and c.pcs_supplier:
+                avg_girth_gross = calc_avg_girth(c.cbm_gross, c.pcs_supplier)
+            if c.cbm_net and c.pcs_supplier:
+                avg_girth_net = calc_avg_girth(c.cbm_net, c.pcs_supplier)
+            
             await db.containers.insert_one({
                 "id": str(uuid.uuid4()),
                 "purchase_id": purchase_id,
                 "user_id": user_id,
                 "sr_no": next_sr,
                 "container_number": c.container_number.strip(),
+                "cbm_gross": c.cbm_gross,
+                "cbm_net": c.cbm_net,
+                "pcs_supplier": c.pcs_supplier,
+                "avg_girth_gross": avg_girth_gross,
+                "avg_girth_net": avg_girth_net,
+                "l_avg": c.l_avg,
+                "quality_supplier": c.quality_supplier,
+                "bend_percent": None,
+                "quality_by_us": None,
+                "measurement_date": None,
+                "completed_at": None,
                 "is_loading_complete": False,
+                "loading_complete_at": None,
                 "created_at": now_iso(),
             })
             next_sr += 1
@@ -413,11 +479,246 @@ async def set_container_complete(container_id: str, payload: CompleteIn, current
     c = await db.containers.find_one({"id": container_id, "user_id": current["id"]})
     if not c:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.containers.update_one({"id": container_id}, {"$set": {"is_loading_complete": payload.is_complete}})
+    update_data = {"is_loading_complete": payload.is_complete}
+    if payload.is_complete:
+        update_data["loading_complete_at"] = now_iso()
+    await db.containers.update_one({"id": container_id}, {"$set": update_data})
     return {"ok": True}
 
 
+@api_router.patch("/containers/{container_id}/completion-form")
+async def set_container_completion_form(container_id: str, payload: CompletionFormIn, current=Depends(get_current_user)):
+    c = await db.containers.find_one({"id": container_id, "user_id": current["id"]})
+    if not c:
+        raise HTTPException(status_code=404, detail="Not found")
+    update_data = {}
+    if payload.bend_percent is not None:
+        update_data["bend_percent"] = payload.bend_percent
+    if payload.quality_by_us is not None:
+        update_data["quality_by_us"] = payload.quality_by_us.strip()
+    if payload.measurement_date is not None:
+        update_data["measurement_date"] = payload.measurement_date
+    if update_data:
+        update_data["completed_at"] = now_iso()
+        update_data["is_loading_complete"] = True
+        update_data["loading_complete_at"] = now_iso()
+        await db.containers.update_one({"id": container_id}, {"$set": update_data})
+    return {"ok": True}
+
+
+# ----- Suppliers -----
+@api_router.get("/suppliers")
+async def list_suppliers(current=Depends(get_current_user)):
+    user_id = current["id"]
+    suppliers = await db.suppliers.find({"user_id": user_id}, {"_id": 0}).sort("name", 1).to_list(1000)
+    return suppliers
+
+
+@api_router.post("/suppliers")
+async def create_supplier(payload: SupplierIn, current=Depends(get_current_user)):
+    user_id = current["id"]
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Supplier name required")
+    # Check if already exists
+    existing = await db.suppliers.find_one({"user_id": user_id, "name": name})
+    if existing:
+        return existing  # Return existing instead of error
+    supplier_id = str(uuid.uuid4())
+    doc = {
+        "id": supplier_id,
+        "user_id": user_id,
+        "name": name,
+        "created_at": now_iso(),
+    }
+    await db.suppliers.insert_one(doc)
+    return {"id": supplier_id, "user_id": user_id, "name": name, "created_at": doc["created_at"]}
+
+
+# ----- Countries -----
+@api_router.get("/countries")
+async def list_countries(current=Depends(get_current_user)):
+    user_id = current["id"]
+    countries = await db.countries.find({"user_id": user_id}, {"_id": 0}).sort("name", 1).to_list(1000)
+    return countries
+
+
+@api_router.post("/countries")
+async def create_country(payload: CountryIn, current=Depends(get_current_user)):
+    user_id = current["id"]
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Country name required")
+    # Check if already exists
+    existing = await db.countries.find_one({"user_id": user_id, "name": name})
+    if existing:
+        return existing  # Return existing instead of error
+    country_id = str(uuid.uuid4())
+    doc = {
+        "id": country_id,
+        "user_id": user_id,
+        "name": name,
+        "created_at": now_iso(),
+    }
+    await db.countries.insert_one(doc)
+    return {"id": country_id, "user_id": user_id, "name": name, "created_at": doc["created_at"]}
+
+
+@api_router.post("/countries/seed")
+async def seed_countries(current=Depends(get_current_user)):
+    """Seed common timber countries for the current user"""
+    user_id = current["id"]
+    common_countries = [
+        "Ecuador", "Brazil", "Indonesia", "Malaysia", "Myanmar",
+        "Cameroon", "Gabon", "Congo", "Ghana", "Ivory Coast",
+        "Solomon Islands", "Papua New Guinea", "Laos", "Vietnam"
+    ]
+    added = []
+    for country_name in common_countries:
+        existing = await db.countries.find_one({"user_id": user_id, "name": country_name})
+        if not existing:
+            doc = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "name": country_name,
+                "created_at": now_iso(),
+            }
+            await db.countries.insert_one(doc)
+            added.append(country_name)
+    return {"added": added, "total": len(common_countries)}
+
+
 # ----- Dashboard -----
+@api_router.get("/dashboard/kpis")
+async def dashboard_kpis(current=Depends(get_current_user)):
+    """Enhanced KPI dashboard with detailed statistics"""
+    user_id = current["id"]
+    
+    # Get all purchases
+    all_purchases = await db.purchases.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    
+    total_bls = len(all_purchases)
+    total_containers = 0
+    total_pieces = 0
+    total_cbm1 = 0.0
+    total_cft1 = 0.0
+    total_cbm2 = 0.0
+    total_cft2 = 0.0
+    
+    bls_not_started = 0
+    bls_in_progress = 0
+    bls_completed = 0
+    
+    containers_pending = 0
+    containers_in_progress = 0
+    containers_completed = 0
+    
+    pending_container_list = []
+    pending_bl_list = []
+    recent_activity = []
+    
+    for p in all_purchases:
+        containers = await db.containers.find({"purchase_id": p["id"]}, {"_id": 0}).sort("sr_no", 1).to_list(1000)
+        total_containers += len(containers)
+        
+        bl_has_any_measurement = False
+        bl_all_complete = True if containers else False
+        
+        for c in containers:
+            logs = await db.log_measurements.find({"container_id": c["id"]}, {"_id": 0}).sort("log_number", 1).to_list(10000)
+            log_count = len(logs)
+            
+            status = await container_status_for(c["id"])
+            
+            if status == "completed":
+                containers_completed += 1
+                # Add to recent activity
+                if c.get("measurement_date"):
+                    recent_activity.append({
+                        "container_number": c["container_number"],
+                        "bl_number": p["bl_number"],
+                        "pieces": log_count,
+                        "measurement_date": c["measurement_date"],
+                        "cbm2": sum(lg["cbm2"] for lg in logs),
+                    })
+            elif status == "in_progress":
+                containers_in_progress += 1
+                bl_all_complete = False
+            else:  # pending
+                containers_pending += 1
+                bl_all_complete = False
+                pending_container_list.append({
+                    "container_id": c["id"],
+                    "container_number": c["container_number"],
+                    "bl_number": p["bl_number"],
+                    "bl_date": p["bl_date"],
+                    "supplier_name": p["supplier_name"],
+                    "country": p["country"],
+                    "pcs_supplier": c.get("pcs_supplier"),
+                    "cbm_gross": c.get("cbm_gross"),
+                })
+            
+            if log_count > 0:
+                bl_has_any_measurement = True
+                total_pieces += log_count
+                for lg in logs:
+                    total_cbm1 += lg["cbm1"]
+                    total_cft1 += lg["cft1"]
+                    total_cbm2 += lg["cbm2"]
+                    total_cft2 += lg["cft2"]
+        
+        # Classify BL status
+        if not bl_has_any_measurement:
+            bls_not_started += 1
+            pending_bl_list.append({
+                "purchase_id": p["id"],
+                "bl_number": p["bl_number"],
+                "bl_date": p["bl_date"],
+                "supplier_name": p["supplier_name"],
+                "country": p["country"],
+                "total_containers": len(containers),
+            })
+        elif bl_all_complete:
+            bls_completed += 1
+        else:
+            bls_in_progress += 1
+    
+    # Sort recent activity by date (most recent first)
+    recent_activity.sort(key=lambda x: x["measurement_date"], reverse=True)
+    recent_activity = recent_activity[:10]
+    
+    # Sort pending containers by BL date (oldest first)
+    pending_container_list.sort(key=lambda x: x["bl_date"])
+    
+    # Sort pending BLs by date (oldest first)
+    pending_bl_list.sort(key=lambda x: x["bl_date"])
+    
+    return {
+        "overview": {
+            "total_bls": total_bls,
+            "active_bls": bls_in_progress,
+            "completed_bls": bls_completed,
+            "total_containers": total_containers,
+        },
+        "volume": {
+            "total_pieces": total_pieces,
+            "total_cbm1": round(total_cbm1, 4),
+            "total_cft1": round(total_cft1, 4),
+            "total_cbm2": round(total_cbm2, 4),
+            "total_cft2": round(total_cft2, 4),
+        },
+        "alerts": {
+            "bls_not_started": bls_not_started,
+            "bls_in_progress": bls_in_progress,
+            "containers_pending": containers_pending,
+            "containers_completed": containers_completed,
+        },
+        "pending_containers": pending_container_list,
+        "pending_bls": pending_bl_list,
+        "recent_activity": recent_activity,
+    }
+
+
 @api_router.get("/dashboard/summary")
 async def dashboard_summary(
     bl_search: Optional[str] = None,
@@ -508,6 +809,19 @@ async def on_startup():
     await db.purchases.create_index([("user_id", 1), ("bl_number", 1)], unique=True)
     await db.containers.create_index("purchase_id")
     await db.log_measurements.create_index("container_id")
+    await db.suppliers.create_index([("user_id", 1), ("name", 1)], unique=True)
+    await db.countries.create_index([("user_id", 1), ("name", 1)], unique=True)
+    
+    # Seed common timber countries for all users (they can add more)
+    # This creates a global list - users can add their own as well
+    common_countries = [
+        "Ecuador", "Brazil", "Indonesia", "Malaysia", "Myanmar",
+        "Cameroon", "Gabon", "Congo", "Ghana", "Ivory Coast",
+        "Solomon Islands", "Papua New Guinea", "Laos", "Vietnam"
+    ]
+    # We'll seed these for the system - when a user signs up, they can see these
+    # For simplicity, we'll let users create their own lists
+    logger.info("Database indexes created and ready")
 
 
 @app.on_event("shutdown")

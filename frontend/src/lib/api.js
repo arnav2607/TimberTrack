@@ -35,3 +35,19 @@ export function formatErr(detail) {
   if (detail?.msg) return detail.msg;
   return String(detail);
 }
+
+// Supplier APIs
+export const getSuppliers = () => api.get("/suppliers");
+export const createSupplier = (name) => api.post("/suppliers", { name });
+
+// Country APIs
+export const getCountries = () => api.get("/countries");
+export const createCountry = (name) => api.post("/countries", { name });
+export const seedCountries = () => api.post("/countries/seed");
+
+// Enhanced Dashboard
+export const getDashboardKPIs = () => api.get("/dashboard/kpis");
+
+// Container completion form
+export const updateContainerCompletionForm = (containerId, data) =>
+  api.patch(`/containers/${containerId}/completion-form`, data);
